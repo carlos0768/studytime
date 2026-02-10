@@ -374,7 +374,10 @@ export default function RoomPage() {
   return (
     <div className="min-h-dvh flex flex-col">
       {/* Top bar */}
-      <header className="flex items-center justify-between px-5 py-3 border-b border-slate-deep/60">
+      <header
+        className="flex items-center justify-between px-5 py-3 border-b border-slate-deep/60"
+        style={{ paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))' }}
+      >
         <button
           onClick={handleLeave}
           className="inline-flex items-center gap-2 text-text-muted text-sm hover:text-text-secondary transition-colors"
@@ -452,7 +455,10 @@ export default function RoomPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-deep/60 px-5 py-4">
+      <footer
+        className="border-t border-slate-deep/60 px-5 py-4"
+        style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}
+      >
         <div className="max-w-md mx-auto flex items-center justify-center">
           <BGMControls />
         </div>

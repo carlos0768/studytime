@@ -40,7 +40,7 @@ export function useStudyTimer() {
     }
   }, []);
 
-  // Page Visibility API（デバウンス付き）
+  // Page Visibility API（デバウンス付き）+ pagehide で即時離席
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -61,7 +61,20 @@ export function useStudyTimer() {
       }
     };
 
+    // pagehide: ブラウザを閉じる・OSホームに戻る等で即座に離席
+    // visibilitychangeのデバウンスと違い、即時発火する
+    const handlePageHide = () => {
+      if (awayTimeoutRef.current) {
+        clearTimeout(awayTimeoutRef.current);
+        awayTimeoutRef.current = null;
+      }
+      setIsStudying(false);
+      setSecondsSinceLastPoint(0);
+      stopTimer();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
 
     // 初回起動（現在のvisibility状態を確認）
     if (!document.hidden) {
@@ -71,6 +84,7 @@ export function useStudyTimer() {
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
       if (awayTimeoutRef.current) {
         clearTimeout(awayTimeoutRef.current);
       }

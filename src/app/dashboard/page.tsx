@@ -32,7 +32,7 @@ export default function DashboardPage() {
     if (data) setProfile(data);
   }, [user, supabase]);
 
-  // 自分が関わったルーム一覧取得（所有 + 参加履歴）
+  // 自分が関わったルーム一覧取得（所有 + 参加履歴）— 最近入室した順
   const fetchRooms = useCallback(async () => {
     if (!user) return;
 
@@ -43,15 +43,22 @@ export default function DashboardPage() {
       .eq('owner_id', user.id)
       .eq('is_active', true);
 
-    // 2) 参加履歴から room_id を取得
+    // 2) 参加履歴から room_id + 最終入室日時を取得
     const { data: sessions } = await supabase
       .from('study_sessions')
-      .select('room_id')
-      .eq('user_id', user.id);
+      .select('room_id, started_at')
+      .eq('user_id', user.id)
+      .order('started_at', { ascending: false });
 
-    const visitedRoomIds = [
-      ...new Set((sessions || []).map((s) => s.room_id)),
-    ];
+    // 各ルームの最新入室日時を記録
+    const lastVisitMap = new Map<string, string>();
+    for (const s of sessions || []) {
+      if (!lastVisitMap.has(s.room_id)) {
+        lastVisitMap.set(s.room_id, s.started_at);
+      }
+    }
+
+    const visitedRoomIds = [...lastVisitMap.keys()];
 
     // 所有ルームIDを除外して、参加のみのIDを抽出
     const ownedIds = new Set((ownedRooms || []).map((r) => r.id));
@@ -67,13 +74,21 @@ export default function DashboardPage() {
       if (data) visitedRooms = data;
     }
 
-    // マージして最新順にソート
+    // マージして最近入室した順にソート（セッションがないものはcreated_atをフォールバック）
     const all = [...(ownedRooms || []), ...visitedRooms];
-    all.sort(
-      (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    setRooms(all);
+    // 重複排除
+    const seen = new Set<string>();
+    const unique = all.filter((r) => {
+      if (seen.has(r.id)) return false;
+      seen.add(r.id);
+      return true;
+    });
+    unique.sort((a, b) => {
+      const aTime = lastVisitMap.get(a.id) || a.created_at;
+      const bTime = lastVisitMap.get(b.id) || b.created_at;
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
+    setRooms(unique);
   }, [user, supabase]);
 
   // ルームIDリスト（メモ化して不要な再subscribe防止）
