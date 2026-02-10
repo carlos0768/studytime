@@ -57,7 +57,7 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
     if (!audio) {
       audio = document.createElement('audio');
       audio.autoplay = true;
-      audio.playsInline = true;
+      audio.setAttribute('playsinline', '');
       // iOS Safari 対策: body に追加
       document.body.appendChild(audio);
       audioElementsRef.current.set(peerId, audio);
