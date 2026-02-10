@@ -32,17 +32,48 @@ export default function DashboardPage() {
     if (data) setProfile(data);
   }, [user, supabase]);
 
-  // 自分のルーム一覧取得
+  // 自分が関わったルーム一覧取得（所有 + 参加履歴）
   const fetchRooms = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
+
+    // 1) 所有ルーム
+    const { data: ownedRooms } = await supabase
       .from('rooms')
       .select('*')
       .eq('owner_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .limit(5);
-    if (data) setRooms(data);
+      .eq('is_active', true);
+
+    // 2) 参加履歴から room_id を取得
+    const { data: sessions } = await supabase
+      .from('study_sessions')
+      .select('room_id')
+      .eq('user_id', user.id);
+
+    const visitedRoomIds = [
+      ...new Set((sessions || []).map((s) => s.room_id)),
+    ];
+
+    // 所有ルームIDを除外して、参加のみのIDを抽出
+    const ownedIds = new Set((ownedRooms || []).map((r) => r.id));
+    const extraIds = visitedRoomIds.filter((id) => !ownedIds.has(id));
+
+    let visitedRooms: Room[] = [];
+    if (extraIds.length > 0) {
+      const { data } = await supabase
+        .from('rooms')
+        .select('*')
+        .in('id', extraIds)
+        .eq('is_active', true);
+      if (data) visitedRooms = data;
+    }
+
+    // マージして最新順にソート
+    const all = [...(ownedRooms || []), ...visitedRooms];
+    all.sort(
+      (a, b) =>
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    setRooms(all);
   }, [user, supabase]);
 
   // ルームIDリスト（メモ化して不要な再subscribe防止）
@@ -150,8 +181,14 @@ export default function DashboardPage() {
           </div>
           <button
             onClick={handleSignOut}
-            className="text-text-muted text-sm hover:text-text-secondary transition-colors px-3 py-1.5 rounded-lg hover:bg-slate-mid/30"
+            className="btn-ghost text-sm"
+            style={{ padding: '8px 18px', fontSize: '0.8rem' }}
           >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
             ログアウト
           </button>
         </div>
@@ -228,7 +265,11 @@ export default function DashboardPage() {
             あなたの自習室
           </h2>
           {rooms.length === 0 ? (
-            <div className="glass-card p-8 text-center">
+            <div className="flex flex-col items-center justify-center py-12" style={{ opacity: 0.4 }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted mb-4">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+              </svg>
               <p className="text-text-muted text-sm">
                 まだ自習室を作っていません
               </p>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#0a0a0a"/>
+  <rect x="24" y="24" width="464" height="464" rx="80" fill="#111111" stroke="#9ec4b0" stroke-width="2" stroke-opacity="0.15"/>
+  <!-- Book icon -->
+  <g transform="translate(256,240)" stroke="#9ec4b0" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M-80,-80 h50 a32 32 0 0 1 32 32 v112 a24 24 0 0 0 -24 -24 h-58z"/>
+    <path d="M80,-80 h-50 a32 32 0 0 0 -32 32 v112 a24 24 0 0 1 24 -24 h58z"/>
+  </g>
+  <!-- Dot indicator -->
+  <circle cx="256" cy="360" r="12" fill="#9ec4b0" opacity="0.7"/>
+</svg>

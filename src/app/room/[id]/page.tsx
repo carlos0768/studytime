@@ -6,6 +6,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useStudyTimer } from '@/hooks/use-study-timer';
 import { useRoom } from '@/hooks/use-room';
 import { useBGM } from '@/hooks/use-bgm';
+import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { MAX_ROOM_MEMBERS, POINTS_INTERVAL_MINUTES } from '@/lib/constants';
 
 function StudyTimerRing({
@@ -328,6 +329,16 @@ export default function RoomPage() {
   });
 
   const [ready, setReady] = useState(false);
+  const supabase = getSupabaseBrowserClient();
+
+  // 入室時に study_session レコードを作成
+  useEffect(() => {
+    if (!user || !roomId) return;
+    supabase
+      .from('study_sessions')
+      .insert({ user_id: user.id, room_id: roomId })
+      .then(() => {});
+  }, [user, roomId, supabase]);
 
   useEffect(() => {
     if (!authLoading && !user) {
