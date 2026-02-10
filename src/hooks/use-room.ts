@@ -62,6 +62,8 @@ export function useRoom({
       const memberList: RoomMember[] = [];
 
       Object.entries(state).forEach(([key, presences]) => {
+        // ダッシュボードのobserverは除外
+        if (key.startsWith('_obs_')) return;
         const arr = presences as unknown as Record<string, unknown>[];
         if (arr && arr.length > 0) {
           const p = arr[0];

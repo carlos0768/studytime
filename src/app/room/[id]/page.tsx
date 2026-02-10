@@ -125,14 +125,23 @@ function ProgressRingSmall({
   );
 }
 
+const MEMBER_ACCENTS = [
+  { border: 'rgba(158, 196, 176, 0.25)', bg: 'rgba(158, 196, 176, 0.06)', dot: 'rgba(158, 196, 176, 0.7)', text: 'rgb(158, 196, 176)' },
+  { border: 'rgba(150, 178, 204, 0.25)', bg: 'rgba(150, 178, 204, 0.06)', dot: 'rgba(150, 178, 204, 0.7)', text: 'rgb(150, 178, 204)' },
+  { border: 'rgba(192, 168, 140, 0.25)', bg: 'rgba(192, 168, 140, 0.06)', dot: 'rgba(192, 168, 140, 0.7)', text: 'rgb(192, 168, 140)' },
+  { border: 'rgba(180, 160, 196, 0.25)', bg: 'rgba(180, 160, 196, 0.06)', dot: 'rgba(180, 160, 196, 0.7)', text: 'rgb(180, 160, 196)' },
+];
+
 function MemberSlot({
   member,
   isCurrentUser,
   formatTime,
+  index,
 }: {
   member?: { display_name: string; status: string; studying_minutes: number };
   isCurrentUser?: boolean;
   formatTime: (s: number) => string;
+  index: number;
 }) {
   if (!member) {
     return (
@@ -143,25 +152,25 @@ function MemberSlot({
   }
 
   const isStudying = member.status === 'studying';
-  const timeDisplay = formatTime(member.studying_minutes * 60);
+  const accent = MEMBER_ACCENTS[index % MEMBER_ACCENTS.length];
 
   return (
     <div
-      className={`glass-card flex items-center gap-2.5 h-[76px] overflow-hidden ${
-        isCurrentUser
-          ? 'border-amber/30 bg-gradient-to-r from-amber-glow to-transparent'
-          : ''
-      }`}
-      style={{ padding: '12px 16px' }}
+      className="glass-card flex items-center gap-2.5 h-[76px] overflow-hidden"
+      style={{
+        padding: '12px 16px',
+        borderColor: accent.border,
+        background: `linear-gradient(135deg, ${accent.bg} 0%, transparent 70%)`,
+      }}
     >
       {/* Status indicator */}
       <div className="flex-shrink-0">
         <div
-          className={`w-2.5 h-2.5 rounded-full ${
-            isStudying
-              ? 'bg-sage'
-              : 'bg-rose-muted opacity-60'
-          }`}
+          className="w-2.5 h-2.5 rounded-full"
+          style={{
+            background: isStudying ? accent.dot : 'rgba(201, 123, 123, 0.5)',
+            opacity: isStudying ? 1 : 0.6,
+          }}
         />
       </div>
 
@@ -174,9 +183,8 @@ function MemberSlot({
           )}
         </p>
         <p
-          className={`text-[10px] mt-0.5 ${
-            isStudying ? 'text-sage' : 'text-rose-muted'
-          }`}
+          className="text-[10px] mt-0.5"
+          style={{ color: isStudying ? accent.text : 'rgb(201, 123, 123)' }}
         >
           {isStudying ? '自習中' : '離席中'}
         </p>
@@ -186,9 +194,7 @@ function MemberSlot({
       <div className="flex-shrink-0 text-right">
         <p
           className={`text-xs font-medium ${
-            isStudying
-              ? 'text-text-primary'
-              : 'text-text-muted'
+            isStudying ? 'text-text-primary' : 'text-text-muted'
           }`}
           style={{ fontFamily: 'var(--font-mono)' }}
         >
@@ -428,6 +434,7 @@ export default function RoomPage() {
           {memberSlots.map((member, i) => (
             <MemberSlot
               key={member?.user_id || `empty-${i}`}
+              index={i}
               member={
                 member
                   ? {
