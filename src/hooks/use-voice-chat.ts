@@ -154,7 +154,7 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
   );
 
   // --- シグナリングハンドラを ref 経由で最新版を常に参照 ---
-  const handleSignalRef = useRef<(payload: SignalPayload) => Promise<void>>();
+  const handleSignalRef = useRef<(payload: SignalPayload) => Promise<void>>(null);
 
   handleSignalRef.current = async (payload: SignalPayload) => {
     if (payload.from === userIdRef.current) return;
