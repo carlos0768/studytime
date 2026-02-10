@@ -14,7 +14,7 @@ declare global {
   interface Window {
     YT: {
       Player: new (
-        elementId: string,
+        element: HTMLElement | string,
         config: Record<string, unknown>
       ) => YTPlayer;
       PlayerState: { PLAYING: number };
@@ -24,28 +24,89 @@ declare global {
 }
 
 const STORAGE_KEY = 'studyroom_bgm_url';
+const CONTAINER_ID = 'bgm-player';
 
 function extractVideoId(url: string): string | null {
-  // youtube.com/watch?v=
   const watchMatch = url.match(
     /(?:youtube\.com\/watch\?.*v=)([a-zA-Z0-9_-]{11})/
   );
   if (watchMatch) return watchMatch[1];
 
-  // youtu.be/
   const shortMatch = url.match(/(?:youtu\.be\/)([a-zA-Z0-9_-]{11})/);
   if (shortMatch) return shortMatch[1];
 
-  // youtube.com/embed/
   const embedMatch = url.match(
     /(?:youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
   );
   if (embedMatch) return embedMatch[1];
 
-  // 直接11文字ID
   if (/^[a-zA-Z0-9_-]{11}$/.test(url)) return url;
 
   return null;
+}
+
+/**
+ * YT.Player は target 要素を iframe に置き換えるため、
+ * 再生成前にコンテナ div を作り直す必要がある。
+ */
+function ensureContainer(): HTMLElement {
+  let container = document.getElementById(CONTAINER_ID);
+  if (container) {
+    // 既にiframeに置き換わっている場合、新しいdivを作り直す
+    if (container.tagName === 'IFRAME') {
+      const parent = container.parentElement;
+      container.remove();
+      const div = document.createElement('div');
+      div.id = CONTAINER_ID;
+      div.style.cssText = 'position:fixed;width:0;height:0;overflow:hidden';
+      parent?.appendChild(div);
+      return div;
+    }
+    return container;
+  }
+  // 存在しない場合は新規作成
+  const div = document.createElement('div');
+  div.id = CONTAINER_ID;
+  div.style.cssText = 'position:fixed;width:0;height:0;overflow:hidden';
+  document.body.appendChild(div);
+  return div;
+}
+
+// API ロード状態をモジュールレベルで管理（複数hook呼び出しに対応）
+let ytApiReady = false;
+const ytApiCallbacks: (() => void)[] = [];
+
+function loadYTApi(callback: () => void) {
+  if (ytApiReady && window.YT?.Player) {
+    callback();
+    return;
+  }
+
+  ytApiCallbacks.push(callback);
+
+  if (document.getElementById('youtube-iframe-api')) {
+    // スクリプトは既にロード中 — YT が利用可能になったら実行
+    const check = () => {
+      if (window.YT?.Player) {
+        ytApiReady = true;
+        while (ytApiCallbacks.length) ytApiCallbacks.shift()!();
+      } else {
+        setTimeout(check, 150);
+      }
+    };
+    check();
+    return;
+  }
+
+  const tag = document.createElement('script');
+  tag.id = 'youtube-iframe-api';
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+
+  window.onYouTubeIframeAPIReady = () => {
+    ytApiReady = true;
+    while (ytApiCallbacks.length) ytApiCallbacks.shift()!();
+  };
 }
 
 export function useBGM() {
@@ -54,25 +115,12 @@ export function useBGM() {
   const [videoUrl, setVideoUrl] = useState('');
   const [videoTitle, setVideoTitle] = useState('');
   const playerRef = useRef<YTPlayer | null>(null);
-  const apiLoadedRef = useRef(false);
+  const volumeRef = useRef(volume);
 
-  // YouTube IFrame API をロード
+  // volume を ref で追跡（createPlayer のクロージャを安定させるため）
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (document.getElementById('youtube-iframe-api')) {
-      apiLoadedRef.current = true;
-      return;
-    }
-
-    const tag = document.createElement('script');
-    tag.id = 'youtube-iframe-api';
-    tag.src = 'https://www.youtube.com/iframe_api';
-    document.head.appendChild(tag);
-
-    window.onYouTubeIframeAPIReady = () => {
-      apiLoadedRef.current = true;
-    };
-  }, []);
+    volumeRef.current = volume;
+  }, [volume]);
 
   // localStorage から前回のURLを復元
   useEffect(() => {
@@ -80,46 +128,54 @@ export function useBGM() {
     if (saved) setVideoUrl(saved);
   }, []);
 
-  const createPlayer = useCallback(
-    (videoId: string) => {
-      const waitForAPI = () => {
-        if (!apiLoadedRef.current || !window.YT?.Player) {
-          setTimeout(waitForAPI, 200);
-          return;
-        }
-
-        if (playerRef.current) {
+  const createPlayer = useCallback((videoId: string) => {
+    loadYTApi(() => {
+      // 既存プレイヤーを破棄
+      if (playerRef.current) {
+        try {
           playerRef.current.destroy();
+        } catch {
+          // 破棄失敗は無視
         }
+        playerRef.current = null;
+      }
 
-        playerRef.current = new window.YT.Player('bgm-player', {
-          height: '0',
-          width: '0',
-          videoId,
-          playerVars: {
-            autoplay: 1,
-            loop: 1,
-            playlist: videoId,
+      // コンテナ要素を確保（iframe置換対策）
+      const container = ensureContainer();
+
+      playerRef.current = new window.YT.Player(container, {
+        height: '0',
+        width: '0',
+        videoId,
+        playerVars: {
+          autoplay: 1,
+          loop: 1,
+          playlist: videoId,
+        },
+        events: {
+          onReady: (event: { target: YTPlayer }) => {
+            event.target.setVolume(volumeRef.current);
+            event.target.playVideo();
+            setIsPlaying(true);
+            try {
+              const data = event.target.getVideoData();
+              if (data?.title) setVideoTitle(data.title);
+            } catch {
+              // タイトル取得失敗は無視
+            }
           },
-          events: {
-            onReady: (event: { target: YTPlayer }) => {
-              event.target.setVolume(volume);
+          onStateChange: (event: { data: number }) => {
+            // 1 = PLAYING, 2 = PAUSED
+            if (event.data === 1) {
               setIsPlaying(true);
-              try {
-                const data = event.target.getVideoData();
-                if (data?.title) setVideoTitle(data.title);
-              } catch {
-                // タイトル取得失敗は無視
-              }
-            },
+            } else if (event.data === 2) {
+              setIsPlaying(false);
+            }
           },
-        } as Record<string, unknown>);
-      };
-
-      waitForAPI();
-    },
-    [volume]
-  );
+        },
+      } as Record<string, unknown>);
+    });
+  }, []);
 
   const loadVideo = useCallback(
     (url: string) => {
@@ -149,6 +205,7 @@ export function useBGM() {
 
   const changeVolume = useCallback((v: number) => {
     setVolume(v);
+    volumeRef.current = v;
     if (playerRef.current) {
       playerRef.current.setVolume(v);
     }
