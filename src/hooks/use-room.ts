@@ -91,20 +91,18 @@ export function useRoom({
       channel.track(getTrackData());
     }, PRESENCE_SYNC_INTERVAL_MS);
 
-    // pagehide: ブラウザを閉じる・OSホームに戻る時に即座に離席をtrack
-    const handlePageHide = () => {
-      channel.track({
-        display_name: displayNameRef.current,
-        status: 'away',
-        studying_minutes: Math.floor(studyingSecondsRef.current / 60),
-        joined_at: new Date().toISOString(),
-      });
+    // pagehide/beforeunload: ブラウザを閉じる・ページ離脱時にプレゼンスを即削除
+    const handleLeave = () => {
+      channel.untrack();
     };
-    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('pagehide', handleLeave);
+    window.addEventListener('beforeunload', handleLeave);
 
     return () => {
       clearInterval(syncInterval);
-      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('pagehide', handleLeave);
+      window.removeEventListener('beforeunload', handleLeave);
+      channel.untrack();
       channel.unsubscribe();
       channelRef.current = null;
     };
