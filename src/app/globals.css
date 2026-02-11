@@ -254,7 +254,7 @@ body::before {
 }
 
 .room-timer-ring {
-  transform: scale(0.55);
+  transform: scale(0.62);
   transform-origin: top right;
 }
 
@@ -269,7 +269,7 @@ body::before {
   }
 
   .room-timer-ring {
-    transform: scale(1);
+    transform: scale(1.1);
     transform-origin: center;
   }
 }
@@ -285,11 +285,11 @@ body::before {
   }
 
   .room-timer-ring {
-    transform: scale(0.42);
+    transform: scale(0.5);
     transform-origin: top right;
   }
 
   .room-timer-text {
-    font-size: 0.9rem;
+    font-size: 0.95rem;
   }
 }

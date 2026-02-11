@@ -92,10 +92,12 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
       peersRef.current.set(peerId, pc);
 
       const stream = localStreamRef.current;
-      if (stream) {
-        stream.getTracks().forEach((track) => {
-          pc.addTrack(track, stream);
-        });
+      const localAudioTrack = stream?.getAudioTracks()[0];
+      if (stream && localAudioTrack) {
+        pc.addTrack(localAudioTrack, stream);
+      } else {
+        // マイクが使えない/ミュートでも受信専用で相手音声を受け取れるようにする
+        pc.addTransceiver('audio', { direction: 'recvonly' });
       }
 
       pc.onicecandidate = (event) => {
@@ -310,9 +312,46 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
         localStreamRef.current = stream;
         setMicAvailable(true);
         // ミュート解除状態で開始
-        stream.getAudioTracks().forEach((t) => {
-          t.enabled = true;
-        });
+        const audioTrack = stream.getAudioTracks()[0];
+        if (audioTrack) {
+          audioTrack.enabled = true;
+        }
+
+        // 受信専用で張られていた既存Peerへ送信トラックを追加し、再ネゴシエーションする
+        for (const [peerId, pc] of peersRef.current.entries()) {
+          try {
+            const hasAudioSender = pc
+              .getSenders()
+              .some((sender) => sender.track?.kind === 'audio');
+            if (!hasAudioSender && audioTrack) {
+              pc.addTrack(audioTrack, stream);
+            }
+
+            pc.getTransceivers().forEach((transceiver) => {
+              if (
+                transceiver.receiver.track?.kind === 'audio' &&
+                transceiver.direction === 'recvonly'
+              ) {
+                transceiver.direction = 'sendrecv';
+              }
+            });
+
+            if (pc.signalingState !== 'stable') continue;
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            if (pc.localDescription) {
+              sendSignal({
+                type: 'offer',
+                from: userIdRef.current,
+                to: peerId,
+                sdp: pc.localDescription.toJSON(),
+              });
+            }
+          } catch (err) {
+            console.error('Peer renegotiation failed:', err);
+          }
+        }
+
         setIsMuted(false);
         return;
       } catch {
@@ -326,7 +365,7 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
       audioTrack.enabled = !audioTrack.enabled;
       setIsMuted(!audioTrack.enabled);
     }
-  }, []);
+  }, [sendSignal]);
 
   // ページ離脱時にクリーンアップ
   useEffect(() => {
