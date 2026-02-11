@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useRef, useEffect, useState, useCallback, Suspense } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, OrthographicCamera, Html } from '@react-three/drei';
 import * as THREE from 'three';
 
@@ -402,10 +402,21 @@ function Station({
 /* ── Camera Setup ── */
 function CameraSetup() {
   const cameraRef = useRef<THREE.OrthographicCamera>(null);
+  const { size } = useThree();
+
+  // Responsive zoom: scale down on narrow screens
+  const zoom = useMemo(() => {
+    const minDim = Math.min(size.width, size.height);
+    if (minDim < 400) return 50;
+    if (minDim < 600) return 60;
+    return 80;
+  }, [size.width, size.height]);
 
   useFrame(() => {
     if (cameraRef.current) {
       cameraRef.current.lookAt(0, 0.5, 0);
+      cameraRef.current.zoom = zoom;
+      cameraRef.current.updateProjectionMatrix();
     }
   });
 
@@ -413,7 +424,7 @@ function CameraSetup() {
     <OrthographicCamera
       ref={cameraRef}
       makeDefault
-      zoom={80}
+      zoom={zoom}
       position={[10, 10, 10]}
       near={0.1}
       far={100}
