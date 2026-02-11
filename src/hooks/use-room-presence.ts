@@ -2,7 +2,34 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
+import { PRESENCE_STALE_THRESHOLD_MS } from '@/lib/constants';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+
+const PRESENCE_RECHECK_INTERVAL_MS = 5_000;
+
+function parsePresenceTimestamp(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : time;
+}
+
+function getPresenceUpdatedAt(meta: Record<string, unknown>): number | null {
+  return (
+    parsePresenceTimestamp(meta.last_seen_at) ??
+    parsePresenceTimestamp(meta.joined_at)
+  );
+}
+
+function hasFreshPresence(
+  presences: Record<string, unknown>[],
+  now: number
+): boolean {
+  return presences.some((presence) => {
+    const updatedAt = getPresenceUpdatedAt(presence);
+    if (updatedAt === null) return true;
+    return now - updatedAt <= PRESENCE_STALE_THRESHOLD_MS;
+  });
+}
 
 /**
  * 複数ルームのオンライン人数をリアルタイムで監視するフック
@@ -18,11 +45,13 @@ export function useRoomPresenceCounts(roomIds: string[]) {
     // 前回のチャンネルをクリーンアップ
     channelsRef.current.forEach((ch) => ch.unsubscribe());
     channelsRef.current = [];
+    setCounts({});
 
     if (roomIds.length === 0) return;
 
     const observerId = `_obs_${Math.random().toString(36).slice(2)}`;
     const newChannels: RealtimeChannel[] = [];
+    const refreshers: Array<() => void> = [];
 
     for (const roomId of roomIds) {
       // ルームと同じチャンネル名に接続（プレゼンス情報を共有）
@@ -30,31 +59,42 @@ export function useRoomPresenceCounts(roomIds: string[]) {
         config: { presence: { key: observerId } },
       });
 
-      channel.on('presence', { event: 'sync' }, () => {
+      const refreshCount = () => {
+        const now = Date.now();
         const state = channel.presenceState();
-        // observer キー（_obs_ で始まる）は除外してカウント
-        const count = Object.keys(state).filter(
-          (k) => !k.startsWith('_obs_')
-        ).length;
+        const count = Object.entries(state).filter(([key, presences]) => {
+          if (!key || key.startsWith('_obs_')) return false;
+          const arr = presences as unknown as Record<string, unknown>[];
+          if (!arr || arr.length === 0) return false;
+          return hasFreshPresence(arr, now);
+        }).length;
         setCounts((prev) => {
           if (prev[roomId] === count) return prev;
           return { ...prev, [roomId]: count };
         });
-      });
+      };
+
+      channel.on('presence', { event: 'sync' }, refreshCount);
 
       channel.subscribe(async (status: string) => {
         if (status === 'SUBSCRIBED') {
           // observerとしてtrackしてプレゼンス同期を有効化
           await channel.track({ role: 'observer' });
+          refreshCount();
         }
       });
 
       newChannels.push(channel);
+      refreshers.push(refreshCount);
     }
 
     channelsRef.current = newChannels;
+    const recheckInterval = setInterval(() => {
+      refreshers.forEach((refresh) => refresh());
+    }, PRESENCE_RECHECK_INTERVAL_MS);
 
     return () => {
+      clearInterval(recheckInterval);
       newChannels.forEach((ch) => ch.unsubscribe());
       channelsRef.current = [];
     };

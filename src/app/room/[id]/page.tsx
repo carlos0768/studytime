@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useStudyTimer } from '@/hooks/use-study-timer';
@@ -208,6 +208,176 @@ export default function RoomPage() {
 
   const [ready, setReady] = useState(false);
   const supabase = getSupabaseBrowserClient();
+  const sessionIdRef = useRef<string | null>(null);
+  const sessionStartedAtRef = useRef<string | null>(null);
+  const sessionInitPromiseRef = useRef<Promise<void> | null>(null);
+  const finalizingRef = useRef(false);
+  const finalizedRef = useRef(false);
+  const studyingSecondsRef = useRef(studyingSeconds);
+  const pointsEarnedRef = useRef(pointsEarned);
+  const userIdRef = useRef(user?.id || '');
+
+  useEffect(() => {
+    studyingSecondsRef.current = studyingSeconds;
+  }, [studyingSeconds]);
+
+  useEffect(() => {
+    pointsEarnedRef.current = pointsEarned;
+  }, [pointsEarned]);
+
+  useEffect(() => {
+    userIdRef.current = user?.id || '';
+  }, [user?.id]);
+
+  const finalizeStudySessionFallback = useCallback(
+    async ({
+      sessionId,
+      userId,
+      endedAtIso,
+      durationMinutes,
+      points,
+    }: {
+      sessionId: string;
+      userId: string;
+      endedAtIso: string;
+      durationMinutes: number;
+      points: number;
+    }) => {
+      const { data: session, error: sessionFetchError } = await supabase
+        .from('study_sessions')
+        .select('ended_at')
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .single();
+      if (sessionFetchError || !session || session.ended_at) {
+        return;
+      }
+
+      const { data: updatedSession, error: sessionUpdateError } = await supabase
+        .from('study_sessions')
+        .update({
+          ended_at: endedAtIso,
+          duration_minutes: durationMinutes,
+          points_earned: points,
+        })
+        .eq('id', sessionId)
+        .eq('user_id', userId)
+        .is('ended_at', null)
+        .select('id')
+        .maybeSingle();
+      if (sessionUpdateError) {
+        throw sessionUpdateError;
+      }
+      // ここで更新できなかった場合は、別経路で既に確定済み
+      if (!updatedSession) {
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('users')
+        .select('total_minutes, total_points')
+        .eq('id', userId)
+        .single();
+      if (profileError || !profile) {
+        throw profileError || new Error('profile not found');
+      }
+
+      const { error: userUpdateError } = await supabase
+        .from('users')
+        .update({
+          total_minutes: (profile.total_minutes || 0) + durationMinutes,
+          total_points: (profile.total_points || 0) + points,
+        })
+        .eq('id', userId);
+      if (userUpdateError) {
+        throw userUpdateError;
+      }
+
+      const date = endedAtIso.slice(0, 10);
+      const { data: daily } = await supabase
+        .from('daily_stats')
+        .select('id, total_minutes, total_points')
+        .eq('user_id', userId)
+        .eq('date', date)
+        .maybeSingle();
+
+      if (daily) {
+        await supabase
+          .from('daily_stats')
+          .update({
+            total_minutes: (daily.total_minutes || 0) + durationMinutes,
+            total_points: (daily.total_points || 0) + points,
+          })
+          .eq('id', daily.id);
+      } else {
+        await supabase
+          .from('daily_stats')
+          .insert({
+            user_id: userId,
+            date,
+            total_minutes: durationMinutes,
+            total_points: points,
+          });
+      }
+    },
+    [supabase]
+  );
+
+  const finalizeStudySession = useCallback(async () => {
+    if (finalizedRef.current || finalizingRef.current) return;
+    finalizingRef.current = true;
+
+    try {
+      if (!sessionIdRef.current && sessionInitPromiseRef.current) {
+        await sessionInitPromiseRef.current;
+      }
+
+      const sessionId = sessionIdRef.current;
+      const startedAt = sessionStartedAtRef.current;
+      const userId = userIdRef.current;
+      if (!sessionId || !startedAt || !userId) return;
+
+      const nowMs = Date.now();
+      const startedMs = Date.parse(startedAt);
+      const elapsedByClock = Number.isNaN(startedMs)
+        ? 0
+        : Math.floor((nowMs - startedMs) / 1000);
+      const elapsedSeconds = Math.max(
+        elapsedByClock,
+        studyingSecondsRef.current,
+        0
+      );
+      const durationMinutes = Math.max(Math.floor(elapsedSeconds / 60), 0);
+      const points = Math.max(pointsEarnedRef.current, 0);
+      const endedAtIso = new Date(nowMs).toISOString();
+
+      const { error: finalizeError } = await supabase.rpc(
+        'finalize_study_session',
+        {
+          p_session_id: sessionId,
+          p_duration_minutes: durationMinutes,
+          p_points_earned: points,
+          p_ended_at: endedAtIso,
+        }
+      );
+
+      if (finalizeError) {
+        await finalizeStudySessionFallback({
+          sessionId,
+          userId,
+          endedAtIso,
+          durationMinutes,
+          points,
+        });
+      }
+
+      finalizedRef.current = true;
+    } catch (error) {
+      console.error('Failed to finalize study session:', error);
+    } finally {
+      finalizingRef.current = false;
+    }
+  }, [finalizeStudySessionFallback, supabase]);
 
   // スリープ防止（Wake Lock API）
   useEffect(() => {
@@ -230,12 +400,50 @@ export default function RoomPage() {
 
   // 入室時に study_session レコードを作成
   useEffect(() => {
-    if (!user || !roomId) return;
-    supabase
-      .from('study_sessions')
-      .insert({ user_id: user.id, room_id: roomId })
-      .then(() => {});
-  }, [user, roomId, supabase]);
+    if (!user?.id || !roomId) return;
+
+    sessionIdRef.current = null;
+    sessionStartedAtRef.current = null;
+    finalizedRef.current = false;
+    finalizingRef.current = false;
+
+    let cancelled = false;
+    const initPromise = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('study_sessions')
+          .insert({ user_id: user.id, room_id: roomId })
+          .select('id, started_at')
+          .single();
+        if (error) throw error;
+        if (cancelled || !data) return;
+        sessionIdRef.current = data.id;
+        sessionStartedAtRef.current = data.started_at;
+      } catch (error) {
+        console.error('Failed to initialize study session:', error);
+      }
+    })();
+
+    sessionInitPromiseRef.current = initPromise;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, roomId, supabase]);
+
+  // ページ離脱/アンマウント時にもセッションを確定
+  useEffect(() => {
+    const handlePageLeave = () => {
+      void finalizeStudySession();
+    };
+    window.addEventListener('pagehide', handlePageLeave);
+    window.addEventListener('beforeunload', handlePageLeave);
+    return () => {
+      window.removeEventListener('pagehide', handlePageLeave);
+      window.removeEventListener('beforeunload', handlePageLeave);
+      void finalizeStudySession();
+    };
+  }, [finalizeStudySession]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -245,9 +453,11 @@ export default function RoomPage() {
     if (user) setReady(true);
   }, [user, authLoading, router]);
 
-  const handleLeave = async () => {
-    await leaveRoom();
+  const handleLeave = () => {
+    // 先に遷移して体感を優先し、保存処理はバックグラウンドで完了させる
     router.push('/dashboard');
+    void finalizeStudySession();
+    void leaveRoom();
   };
 
   if (!ready) {
@@ -264,7 +474,7 @@ export default function RoomPage() {
   });
 
   return (
-    <div className="h-dvh flex flex-col overflow-hidden">
+    <div className="h-dvh flex flex-col overflow-hidden animate-fade-in">
       {/* Top bar — compact on mobile, original on sm+ */}
       <header
         className="flex items-center justify-between px-4 py-1.5 sm:px-5 sm:py-3 border-b border-slate-deep/60"
@@ -326,11 +536,13 @@ export default function RoomPage() {
 
         {/* Isometric Room View */}
         <div className="w-full h-full sm:flex-1 sm:min-h-0 flex items-center justify-center">
-          <IsometricRoom
-            members={memberSlots}
-            currentUserId={user?.id || ''}
-            maxSlots={MAX_ROOM_MEMBERS}
-          />
+          <div className="w-full h-full -translate-y-[8%] sm:-translate-y-[6%]">
+            <IsometricRoom
+              members={memberSlots}
+              currentUserId={user?.id || ''}
+              maxSlots={MAX_ROOM_MEMBERS}
+            />
+          </div>
         </div>
       </main>
 

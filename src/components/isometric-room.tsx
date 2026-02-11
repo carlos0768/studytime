@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef, useEffect, useState, useCallback, Suspense } from 'react';
+import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallback, Suspense } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, OrthographicCamera, Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -27,13 +27,52 @@ interface ExitingMember {
   modelPath: string;
 }
 
+interface EnteringMember {
+  member: RoomMember;
+  slotIndex: number;
+  startTime: number;
+  modelPath: string;
+}
+
 /* ───────────────────── Exit Animation ──────────────────── */
 
 const DOOR_POSITION: [number, number, number] = [4.0, 0, 0];
 const TOTAL_EXIT_DURATION = 8750; // ms
+const TOTAL_ENTER_DURATION = 6200; // ms
+const ENTER_WALK_CYCLE_SPEED = 0.008;
+const TORII_SCALE = 1.2;
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function getCharacterSeatPosition(slotIndex: number): THREE.Vector3 {
+  const grid = GRID[slotIndex];
+  if (!grid) return new THREE.Vector3(0, 0, 0);
+  return new THREE.Vector3(grid[0], -0.15, grid[1] - 0.45);
+}
+
+function buildStationToDoorPath(slotIndex: number): THREE.Vector3[] {
+  const startPos = getCharacterSeatPosition(slotIndex);
+  const doorTarget = new THREE.Vector3(DOOR_POSITION[0], 0, DOOR_POSITION[2]);
+
+  // Build waypoints to avoid collisions with desks/chairs
+  const pts: THREE.Vector3[] = [startPos.clone()];
+  const slotGrid = GRID[slotIndex];
+  if (slotGrid) {
+    const sx = slotGrid[0];
+    const sz = slotGrid[1];
+    if (sz > 0) {
+      pts.push(new THREE.Vector3(sx, 0, sz + 1.0));
+      pts.push(new THREE.Vector3(DOOR_POSITION[0], 0, sz + 1.0));
+    } else if (sx < 0) {
+      pts.push(new THREE.Vector3(sx, 0, sz - 0.8));
+      pts.push(new THREE.Vector3(DOOR_POSITION[0], 0, sz - 0.8));
+    }
+  }
+  pts.push(doorTarget.clone());
+  pts.push(new THREE.Vector3(doorTarget.x + 4, 0, doorTarget.z));
+  return pts;
 }
 
 /* ───────────────────── Character Models ──────────────────── */
@@ -229,34 +268,43 @@ function NameLabel({
 /* ── Exit Door (right edge wall) ── */
 function ExitDoor() {
   return (
-    <group position={[DOOR_POSITION[0], 0, DOOR_POSITION[2]]}>
-      {/* Door frame - left pillar */}
-      <mesh position={[0.02, 0.85, -0.55]}>
-        <boxGeometry args={[0.14, 1.7, 0.1]} />
-        <meshStandardMaterial color="#6a4a32" />
+    <group position={[DOOR_POSITION[0], 0, DOOR_POSITION[2]]} scale={[TORII_SCALE, TORII_SCALE, TORII_SCALE]}>
+      {/* Main posts */}
+      <mesh position={[0.02, 0.95, -0.65]}>
+        <boxGeometry args={[0.18, 1.9, 0.18]} />
+        <meshStandardMaterial color="#b02a2a" />
       </mesh>
-      {/* Door frame - right pillar */}
-      <mesh position={[0.02, 0.85, 0.55]}>
-        <boxGeometry args={[0.14, 1.7, 0.1]} />
-        <meshStandardMaterial color="#6a4a32" />
+      <mesh position={[0.02, 0.95, 0.65]}>
+        <boxGeometry args={[0.18, 1.9, 0.18]} />
+        <meshStandardMaterial color="#b02a2a" />
       </mesh>
-      {/* Door frame - top */}
-      <mesh position={[0.02, 1.7, 0]}>
-        <boxGeometry args={[0.14, 0.08, 1.2]} />
-        <meshStandardMaterial color="#6a4a32" />
+
+      {/* Kasagi (top beam) */}
+      <mesh position={[0.08, 1.98, 0]}>
+        <boxGeometry args={[0.34, 0.1, 1.72]} />
+        <meshStandardMaterial color="#b02a2a" />
       </mesh>
-      {/* Door panel (half-open, swings inward) */}
-      <group position={[0.02, 0.82, -0.5]} rotation={[0, Math.PI / 3, 0]}>
-        <mesh position={[0.25, 0, 0]}>
-          <boxGeometry args={[0.5, 1.64, 0.04]} />
-          <meshStandardMaterial color="#7a5a3a" />
-        </mesh>
-        {/* Door handle */}
-        <mesh position={[0.44, -0.1, 0.04]}>
-          <boxGeometry args={[0.06, 0.04, 0.06]} />
-          <meshStandardMaterial color="#c8a84e" />
-        </mesh>
-      </group>
+      {/* Shimaki (secondary beam) */}
+      <mesh position={[0.02, 1.82, 0]}>
+        <boxGeometry args={[0.24, 0.09, 1.42]} />
+        <meshStandardMaterial color="#8f1f1f" />
+      </mesh>
+
+      {/* Nuki (lower tie beam) */}
+      <mesh position={[0.02, 1.2, 0]}>
+        <boxGeometry args={[0.2, 0.08, 1.28]} />
+        <meshStandardMaterial color="#7b1616" />
+      </mesh>
+
+      {/* Gakuzuka (center plaque) */}
+      <mesh position={[0.16, 1.66, 0]}>
+        <boxGeometry args={[0.05, 0.3, 0.34]} />
+        <meshStandardMaterial color="#2a2320" />
+      </mesh>
+      <mesh position={[0.175, 1.66, 0]}>
+        <boxGeometry args={[0.008, 0.24, 0.24]} />
+        <meshStandardMaterial color="#d2b15b" emissive="#6a5520" emissiveIntensity={0.15} />
+      </mesh>
     </group>
   );
 }
@@ -301,46 +349,11 @@ function ExitingCharacter({
   }, [cloned]);
 
   // Station position in world space
-  const stationPos = useMemo(() => {
-    const grid = GRID[exitingMember.slotIndex];
-    if (!grid) return new THREE.Vector3(0, 0, 0);
-    return new THREE.Vector3(grid[0], 0, grid[1]);
-  }, [exitingMember.slotIndex]);
-
-  // Character offset within station
-  const charOffset = new THREE.Vector3(0, -0.15, -0.45);
-  const startPos = stationPos.clone().add(charOffset);
-  const doorTarget = new THREE.Vector3(DOOR_POSITION[0], 0, DOOR_POSITION[2]);
-
-  // Build waypoints to avoid collisions with other desks/characters
-  // Route: startPos → (waypoints) → doorTarget → off-screen
-  const waypoints = useMemo(() => {
-    const pts: THREE.Vector3[] = [startPos.clone()];
-    const slotGrid = GRID[exitingMember.slotIndex];
-    if (slotGrid) {
-      const sx = slotGrid[0];
-      const sz = slotGrid[1];
-      // Back row (Z > 0): step out behind desk first, then walk along the aisle
-      if (sz > 0) {
-        // Step back behind the desk (Z + offset to clear desk depth)
-        pts.push(new THREE.Vector3(sx, 0, sz + 1.0));
-        // Walk to the right side aisle
-        pts.push(new THREE.Vector3(DOOR_POSITION[0], 0, sz + 1.0));
-      }
-      // Front-right slot: can go straight to door
-      // Front-left slot: step out then go right
-      else if (sx < 0) {
-        // Step away from desk
-        pts.push(new THREE.Vector3(sx, 0, sz - 0.8));
-        // Walk along the front aisle to the right
-        pts.push(new THREE.Vector3(DOOR_POSITION[0], 0, sz - 0.8));
-      }
-    }
-    pts.push(doorTarget.clone());
-    // Off-screen: always walk through the door (X+ direction, past the right edge)
-    pts.push(new THREE.Vector3(doorTarget.x + 4, 0, doorTarget.z));
-    return pts;
-  }, [exitingMember.slotIndex, startPos, doorTarget]);
+  const waypoints = useMemo(
+    () => buildStationToDoorPath(exitingMember.slotIndex),
+    [exitingMember.slotIndex]
+  );
+  const startPos = waypoints[0];
 
   // Compute total path length for constant-speed walking
   const { segLengths, totalLength } = useMemo(() => {
@@ -430,6 +443,271 @@ function ExitingCharacter({
   );
 }
 
+/* ── Entering Character (animated) ── */
+function EnteringCharacter({
+  enteringMember,
+  onComplete,
+}: {
+  enteringMember: EnteringMember;
+  onComplete: () => void;
+}) {
+  const { scene } = useGLTF(enteringMember.modelPath);
+  const groupRef = useRef<THREE.Group>(null);
+  const legLeftRef = useRef<THREE.Object3D | null>(null);
+  const legRightRef = useRef<THREE.Object3D | null>(null);
+  const torsoRef = useRef<THREE.Object3D | null>(null);
+  const headRef = useRef<THREE.Object3D | null>(null);
+  const armLeftRef = useRef<THREE.Object3D | null>(null);
+  const armRightRef = useRef<THREE.Object3D | null>(null);
+  const completedRef = useRef(false);
+
+  const cloned = useMemo(() => {
+    const c = scene.clone(true);
+    c.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        if (mesh.material) {
+          mesh.material = (mesh.material as THREE.Material).clone();
+        }
+      }
+    });
+    return c;
+  }, [scene]);
+
+  useEffect(() => {
+    cloned.traverse((child) => {
+      if (child.name === 'leg-left') legLeftRef.current = child;
+      if (child.name === 'leg-right') legRightRef.current = child;
+      if (child.name === 'torso') torsoRef.current = child;
+      if (child.name === 'head') headRef.current = child;
+      if (child.name === 'arm-left') armLeftRef.current = child;
+      if (child.name === 'arm-right') armRightRef.current = child;
+    });
+  }, [cloned]);
+
+  const route = useMemo(() => {
+    const stationToDoor = buildStationToDoorPath(enteringMember.slotIndex);
+    return [...stationToDoor].reverse();
+  }, [enteringMember.slotIndex]);
+  const seatedPos = route[route.length - 1];
+
+  const {
+    toBowPath,
+    toBowSegLengths,
+    toBowTotalLength,
+    afterBowPath,
+    afterBowSegLengths,
+    afterBowTotalLength,
+    bowFacing,
+    bowPoint,
+  } = useMemo(() => {
+    const pathToDoor =
+      route.length >= 2 ? [route[0], route[1]] : [route[0], route[0]];
+    const pathInside = route.length >= 2 ? route.slice(1) : [route[0], route[0]];
+
+    const calcMetrics = (path: THREE.Vector3[]) => {
+      const lengths: number[] = [];
+      let total = 0;
+      for (let i = 1; i < path.length; i++) {
+        const d = path[i].distanceTo(path[i - 1]);
+        lengths.push(d);
+        total += d;
+      }
+      return { lengths, total };
+    };
+
+    const outsidePoint = pathToDoor[0] ?? new THREE.Vector3();
+    const doorPoint = pathToDoor[1] ?? outsidePoint;
+    // 鳥居より手前（外側）で一礼する
+    const bowPointVec = new THREE.Vector3(
+      outsidePoint.x + (doorPoint.x - outsidePoint.x) * 0.58,
+      0,
+      outsidePoint.z + (doorPoint.z - outsidePoint.z) * 0.58
+    );
+    const toRoomX = doorPoint.x - bowPointVec.x;
+    const toRoomZ = doorPoint.z - bowPointVec.z;
+    const facing =
+      toRoomX !== 0 || toRoomZ !== 0 ? Math.atan2(toRoomX, toRoomZ) : 0;
+
+    const pathToBow = [outsidePoint.clone(), bowPointVec.clone()];
+    const pathAfterBow = [bowPointVec.clone(), ...pathInside.map((p) => p.clone())];
+    const toBow = calcMetrics(pathToBow);
+    const afterBow = calcMetrics(pathAfterBow);
+
+    return {
+      toBowPath: pathToBow,
+      toBowSegLengths: toBow.lengths,
+      toBowTotalLength: toBow.total,
+      afterBowPath: pathAfterBow,
+      afterBowSegLengths: afterBow.lengths,
+      afterBowTotalLength: afterBow.total,
+      bowFacing: facing,
+      bowPoint: bowPointVec,
+    };
+  }, [route]);
+
+  const samplePath = (
+    path: THREE.Vector3[],
+    segLengths: number[],
+    targetDist: number
+  ) => {
+    let accumulated = 0;
+    let posX = path[0].x;
+    let posZ = path[0].z;
+    let dirX = 0;
+    let dirZ = 0;
+
+    for (let i = 0; i < segLengths.length; i++) {
+      if (accumulated + segLengths[i] >= targetDist) {
+        const segT =
+          segLengths[i] === 0 ? 1 : (targetDist - accumulated) / segLengths[i];
+        const from = path[i];
+        const to = path[i + 1];
+        posX = from.x + (to.x - from.x) * segT;
+        posZ = from.z + (to.z - from.z) * segT;
+        dirX = to.x - from.x;
+        dirZ = to.z - from.z;
+        return { posX, posZ, dirX, dirZ };
+      }
+      accumulated += segLengths[i];
+    }
+
+    const last = path[path.length - 1];
+    const prev = path[path.length - 2] ?? last;
+    return {
+      posX: last.x,
+      posZ: last.z,
+      dirX: last.x - prev.x,
+      dirZ: last.z - prev.z,
+    };
+  };
+
+  const resetUpperBodyPose = () => {
+    if (torsoRef.current) torsoRef.current.rotation.x = 0;
+    if (headRef.current) headRef.current.rotation.x = 0;
+    if (armLeftRef.current) armLeftRef.current.rotation.x = 0;
+    if (armRightRef.current) armRightRef.current.rotation.x = 0;
+  };
+
+  useFrame(() => {
+    if (!groupRef.current || completedRef.current) return;
+
+    const elapsed = Date.now() - enteringMember.startTime;
+    const group = groupRef.current;
+
+    if (elapsed >= TOTAL_ENTER_DURATION) {
+      completedRef.current = true;
+      onComplete();
+      return;
+    }
+
+    const SIT_DURATION = 900;
+    const BOW_DURATION = 550;
+    const walkBudget = Math.max(TOTAL_ENTER_DURATION - SIT_DURATION - BOW_DURATION, 0);
+    const moveTotalLength = toBowTotalLength + afterBowTotalLength;
+    const WALK_TO_BOW_DURATION =
+      walkBudget === 0 || moveTotalLength === 0
+        ? 0
+        : Math.round((walkBudget * toBowTotalLength) / moveTotalLength);
+    const WALK_AFTER_BOW_DURATION = Math.max(walkBudget - WALK_TO_BOW_DURATION, 0);
+    const BOW_START = WALK_TO_BOW_DURATION;
+    const WALK_AFTER_BOW_START = BOW_START + BOW_DURATION;
+    const SIT_START = WALK_AFTER_BOW_START + WALK_AFTER_BOW_DURATION;
+
+    if (elapsed < WALK_TO_BOW_DURATION) {
+      const walkT =
+        WALK_TO_BOW_DURATION === 0 ? 1 : elapsed / WALK_TO_BOW_DURATION;
+      const targetDist = walkT * toBowTotalLength;
+      const { posX, posZ, dirX, dirZ } = samplePath(
+        toBowPath,
+        toBowSegLengths,
+        targetDist
+      );
+      group.position.set(posX, 0.15, posZ);
+      if (dirX !== 0 || dirZ !== 0) {
+        group.rotation.y = Math.atan2(dirX, dirZ);
+      }
+      resetUpperBodyPose();
+      const walkCycle = Math.sin(elapsed * ENTER_WALK_CYCLE_SPEED) * 0.5;
+      if (legLeftRef.current) legLeftRef.current.rotation.x = walkCycle;
+      if (legRightRef.current) legRightRef.current.rotation.x = -walkCycle;
+      return;
+    }
+
+    if (elapsed < WALK_AFTER_BOW_START) {
+      const bowT = (elapsed - BOW_START) / BOW_DURATION;
+      const downRatio = 0.45;
+      const holdRatio = 0.25;
+      let bowWave = 0;
+      if (bowT < downRatio) {
+        bowWave = easeInOutCubic(bowT / downRatio);
+      } else if (bowT < downRatio + holdRatio) {
+        bowWave = 1;
+      } else {
+        bowWave = 1 - easeInOutCubic((bowT - downRatio - holdRatio) / (1 - downRatio - holdRatio));
+      }
+
+      group.position.set(
+        bowPoint.x,
+        0.15 - bowWave * 0.03,
+        bowPoint.z
+      );
+      group.rotation.y = bowFacing;
+
+      // 「胴体を折る」お辞儀
+      const torsoBend = bowWave * 0.72;
+      const kneeBend = bowWave * 0.08;
+      // +X が前傾方向なので、正方向に倒す
+      if (torsoRef.current) torsoRef.current.rotation.x = torsoBend;
+      // 首だけ軽く戻して、過度な前のめりを抑える
+      if (headRef.current) headRef.current.rotation.x = -torsoBend * 0.2;
+      if (armLeftRef.current) armLeftRef.current.rotation.x = -torsoBend * 0.05;
+      if (armRightRef.current) armRightRef.current.rotation.x = -torsoBend * 0.05;
+      if (legLeftRef.current) legLeftRef.current.rotation.x = -kneeBend;
+      if (legRightRef.current) legRightRef.current.rotation.x = -kneeBend;
+      return;
+    }
+
+    if (elapsed < SIT_START) {
+      const walkAfterBowT =
+        WALK_AFTER_BOW_DURATION === 0
+          ? 1
+          : (elapsed - WALK_AFTER_BOW_START) / WALK_AFTER_BOW_DURATION;
+      const targetDist = walkAfterBowT * afterBowTotalLength;
+      const { posX, posZ, dirX, dirZ } = samplePath(
+        afterBowPath,
+        afterBowSegLengths,
+        targetDist
+      );
+      group.position.set(posX, 0.15, posZ);
+      if (dirX !== 0 || dirZ !== 0) {
+        group.rotation.y = Math.atan2(dirX, dirZ);
+      }
+      resetUpperBodyPose();
+      const walkCycle = Math.sin(elapsed * ENTER_WALK_CYCLE_SPEED) * 0.5;
+      if (legLeftRef.current) legLeftRef.current.rotation.x = walkCycle;
+      if (legRightRef.current) legRightRef.current.rotation.x = -walkCycle;
+      return;
+    }
+
+    const sitT = easeInOutCubic((elapsed - SIT_START) / SIT_DURATION);
+    group.position.set(seatedPos.x, 0.15 * (1 - sitT), seatedPos.z);
+    group.rotation.y = 0;
+    resetUpperBodyPose();
+    const legAngle = -Math.PI / 2 * sitT;
+    if (legLeftRef.current) legLeftRef.current.rotation.x = legAngle;
+    if (legRightRef.current) legRightRef.current.rotation.x = legAngle;
+  });
+
+  return (
+    <group ref={groupRef} position={[route[0].x, 0.15, route[0].z]}>
+      <group scale={0.5}>
+        <primitive object={cloned} />
+      </group>
+    </group>
+  );
+}
+
 /* ── Station (desk + chair + character) ── */
 function Station({
   member,
@@ -505,9 +783,12 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
   // Stable user_id → slot mapping (persists across re-renders)
   const slotMapRef = useRef<Map<string, number>>(new Map());
   const prevSlotMapRef = useRef<Map<string, number>>(new Map());
+  const lastSeenSlotRef = useRef<Map<string, number>>(new Map());
   const prevMembersMapRef = useRef<Map<string, RoomMember>>(new Map());
   const [exitingMembers, setExitingMembers] = useState<Map<string, ExitingMember>>(new Map());
+  const [enteringMembers, setEnteringMembers] = useState<Map<string, EnteringMember>>(new Map());
   const prevUserIdsRef = useRef<Set<string>>(new Set());
+  const hasHydratedPresenceRef = useRef(false);
 
   // Build stable slot assignments: each user keeps their first-assigned slot
   const stableSlots = useMemo(() => {
@@ -554,6 +835,8 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
       const slot = slotMap.get(m.user_id);
       if (slot !== undefined && slot < numSlots) {
         slots[slot].member = m;
+        // 退出検知時に参照できるよう、最新のスロットを保持しておく
+        lastSeenSlotRef.current.set(m.user_id, slot);
       }
     }
 
@@ -561,19 +844,44 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
   }, [members, maxSlots]);
 
   // Detect exits by comparing user_id sets
-  useEffect(() => {
+  useLayoutEffect(() => {
     const activeMembers = members.filter((m): m is RoomMember => m !== null);
+    const activeMemberMap = new Map<string, RoomMember>();
+    for (const m of activeMembers) {
+      activeMemberMap.set(m.user_id, m);
+    }
     const currentIds = new Set(activeMembers.map((m) => m.user_id));
+
+    // 初回同期では入室アニメを発火しない。
+    // これにより「新規参加者本人の画面」では参加直後の入室アニメを表示しない。
+    if (!hasHydratedPresenceRef.current) {
+      if (!currentUserId || currentIds.has(currentUserId)) {
+        hasHydratedPresenceRef.current = true;
+      }
+      prevUserIdsRef.current = currentIds;
+      prevMembersMapRef.current = activeMemberMap;
+      return;
+    }
+
     const prevIds = prevUserIdsRef.current;
 
     const newExiting = new Map(exitingMembers);
-    let changed = false;
+    const newEntering = new Map(enteringMembers);
+    let changedExiting = false;
+    let changedEntering = false;
 
     // Users who left
     for (const uid of prevIds) {
       if (!currentIds.has(uid) && !newExiting.has(uid)) {
+        if (newEntering.has(uid)) {
+          newEntering.delete(uid);
+          changedEntering = true;
+          continue;
+        }
         // Use the snapshot taken before cleanup
-        const slotIndex = prevSlotMapRef.current.get(uid);
+        const slotIndex =
+          prevSlotMapRef.current.get(uid) ??
+          lastSeenSlotRef.current.get(uid);
         const prevMember = prevMembersMapRef.current.get(uid);
         if (slotIndex !== undefined) {
           newExiting.set(uid, {
@@ -582,7 +890,7 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
             startTime: Date.now(),
             modelPath: CHARACTER_MODELS[slotIndex % CHARACTER_MODELS.length],
           });
-          changed = true;
+          changedExiting = true;
         }
       }
     }
@@ -591,22 +899,46 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
     for (const uid of currentIds) {
       if (newExiting.has(uid)) {
         newExiting.delete(uid);
-        changed = true;
+        changedExiting = true;
       }
     }
 
-    if (changed) {
+    // Users who joined — play enter animation from door to slot
+    for (const uid of currentIds) {
+      if (!prevIds.has(uid) && !newEntering.has(uid)) {
+        const slotIndex = slotMapRef.current.get(uid);
+        const member = activeMemberMap.get(uid);
+        if (slotIndex !== undefined && member) {
+          newEntering.set(uid, {
+            member,
+            slotIndex,
+            startTime: Date.now(),
+            modelPath: CHARACTER_MODELS[slotIndex % CHARACTER_MODELS.length],
+          });
+          changedEntering = true;
+        }
+      }
+    }
+
+    // If user disappeared while entering, clear stale animation
+    for (const uid of newEntering.keys()) {
+      if (!currentIds.has(uid)) {
+        newEntering.delete(uid);
+        changedEntering = true;
+      }
+    }
+
+    if (changedExiting) {
       setExitingMembers(newExiting);
+    }
+    if (changedEntering) {
+      setEnteringMembers(newEntering);
     }
 
     prevUserIdsRef.current = currentIds;
     // Store current members for next diff
-    const membersMap = new Map<string, RoomMember>();
-    for (const m of activeMembers) {
-      membersMap.set(m.user_id, m);
-    }
-    prevMembersMapRef.current = membersMap;
-  }, [members]); // eslint-disable-line react-hooks/exhaustive-deps
+    prevMembersMapRef.current = activeMemberMap;
+  }, [members, enteringMembers, exitingMembers, currentUserId]);
 
   const handleExitComplete = useCallback((userId: string) => {
     setExitingMembers((prev) => {
@@ -615,6 +947,19 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
       return next;
     });
   }, []);
+
+  const handleEnterComplete = useCallback((userId: string) => {
+    setEnteringMembers((prev) => {
+      const next = new Map(prev);
+      next.delete(userId);
+      return next;
+    });
+  }, []);
+
+  const enteringUserIds = useMemo(
+    () => new Set(Array.from(enteringMembers.keys())),
+    [enteringMembers]
+  );
 
   return (
     <div className="w-full h-full select-none">
@@ -665,16 +1010,27 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
 
         {/* Scene */}
         <Suspense fallback={null}>
-          {stableSlots.map(({ idx, member, position }) => (
-            <Station
-              key={idx}
-              member={member}
-              index={idx}
-              currentUserId={currentUserId}
-              position={position}
+          {stableSlots.map(({ idx, member, position }) => {
+            const hiddenDuringEnter =
+              member !== null && enteringUserIds.has(member.user_id);
+            return (
+              <Station
+                key={idx}
+                member={hiddenDuringEnter ? null : member}
+                index={idx}
+                currentUserId={currentUserId}
+                position={position}
+              />
+            );
+          })}
+          <ExitDoor />
+          {Array.from(enteringMembers.entries()).map(([userId, em]) => (
+            <EnteringCharacter
+              key={userId}
+              enteringMember={em}
+              onComplete={() => handleEnterComplete(userId)}
             />
           ))}
-          <ExitDoor />
           {Array.from(exitingMembers.entries()).map(([userId, em]) => (
             <ExitingCharacter
               key={userId}
