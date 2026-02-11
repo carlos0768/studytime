@@ -437,41 +437,95 @@ function CameraSetup() {
    ═══════════════════════════════════════════════════════════ */
 
 export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoomProps) {
-  const prevMembersRef = useRef<(RoomMember | null)[]>(members);
+  // Stable user_id → slot mapping (persists across re-renders)
+  const slotMapRef = useRef<Map<string, number>>(new Map());
+  const prevSlotMapRef = useRef<Map<string, number>>(new Map());
+  const prevMembersMapRef = useRef<Map<string, RoomMember>>(new Map());
   const [exitingMembers, setExitingMembers] = useState<Map<string, ExitingMember>>(new Map());
+  const prevUserIdsRef = useRef<Set<string>>(new Set());
 
-  // Detect members who left and trigger exit animation
+  // Build stable slot assignments: each user keeps their first-assigned slot
+  const stableSlots = useMemo(() => {
+    const slotMap = slotMapRef.current;
+    const numSlots = Math.min(maxSlots, 4);
+
+    // Snapshot current slotMap before mutation (for exit detection)
+    prevSlotMapRef.current = new Map(slotMap);
+
+    // Collect active member user_ids
+    const activeMembers = members.filter((m): m is RoomMember => m !== null);
+    const activeIds = new Set(activeMembers.map((m) => m.user_id));
+
+    // Remove users no longer present from slotMap
+    for (const [uid] of slotMap) {
+      if (!activeIds.has(uid)) {
+        slotMap.delete(uid);
+      }
+    }
+
+    // Assign slots to new members using first available slot
+    for (const m of activeMembers) {
+      if (!slotMap.has(m.user_id)) {
+        const usedSlots = new Set(slotMap.values());
+        for (let s = 0; s < numSlots; s++) {
+          if (!usedSlots.has(s)) {
+            slotMap.set(m.user_id, s);
+            break;
+          }
+        }
+      }
+    }
+
+    // Build slots array
+    const slots: { idx: number; member: RoomMember | null; position: [number, number] }[] = [];
+    for (let i = 0; i < numSlots; i++) {
+      slots.push({
+        idx: i,
+        member: null,
+        position: (GRID[i] ?? [0, 0]) as [number, number],
+      });
+    }
+    for (const m of activeMembers) {
+      const slot = slotMap.get(m.user_id);
+      if (slot !== undefined && slot < numSlots) {
+        slots[slot].member = m;
+      }
+    }
+
+    return slots;
+  }, [members, maxSlots]);
+
+  // Detect exits by comparing user_id sets
   useEffect(() => {
-    const prev = prevMembersRef.current;
-    const next = members;
+    const activeMembers = members.filter((m): m is RoomMember => m !== null);
+    const currentIds = new Set(activeMembers.map((m) => m.user_id));
+    const prevIds = prevUserIdsRef.current;
 
     const newExiting = new Map(exitingMembers);
     let changed = false;
 
-    for (let i = 0; i < Math.min(prev.length, 4); i++) {
-      const prevMember = prev[i];
-      const nextMember = next[i];
-
-      // Member left this slot
-      if (prevMember && !nextMember) {
-        // Check if they re-appeared in another slot (seat swap, not a leave)
-        const stillPresent = next.some(
-          (m) => m && m.user_id === prevMember.user_id
-        );
-        if (!stillPresent && !newExiting.has(prevMember.user_id)) {
-          newExiting.set(prevMember.user_id, {
-            member: prevMember,
-            slotIndex: i,
+    // Users who left
+    for (const uid of prevIds) {
+      if (!currentIds.has(uid) && !newExiting.has(uid)) {
+        // Use the snapshot taken before cleanup
+        const slotIndex = prevSlotMapRef.current.get(uid);
+        const prevMember = prevMembersMapRef.current.get(uid);
+        if (slotIndex !== undefined) {
+          newExiting.set(uid, {
+            member: prevMember ?? { user_id: uid, display_name: '', status: 'away', studying_minutes: 0 },
+            slotIndex,
             startTime: Date.now(),
-            modelPath: CHARACTER_MODELS[i % CHARACTER_MODELS.length],
+            modelPath: CHARACTER_MODELS[slotIndex % CHARACTER_MODELS.length],
           });
           changed = true;
         }
       }
+    }
 
-      // Member re-joined — cancel exit animation if running
-      if (nextMember && newExiting.has(nextMember.user_id)) {
-        newExiting.delete(nextMember.user_id);
+    // Users who re-joined — cancel exit animation
+    for (const uid of currentIds) {
+      if (newExiting.has(uid)) {
+        newExiting.delete(uid);
         changed = true;
       }
     }
@@ -480,7 +534,13 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
       setExitingMembers(newExiting);
     }
 
-    prevMembersRef.current = next;
+    prevUserIdsRef.current = currentIds;
+    // Store current members for next diff
+    const membersMap = new Map<string, RoomMember>();
+    for (const m of activeMembers) {
+      membersMap.set(m.user_id, m);
+    }
+    prevMembersMapRef.current = membersMap;
   }, [members]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleExitComplete = useCallback((userId: string) => {
@@ -490,14 +550,6 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
       return next;
     });
   }, []);
-
-  const stations = useMemo(() => {
-    return Array.from({ length: Math.min(maxSlots, 4) }, (_, i) => ({
-      idx: i,
-      member: members[i] ?? null,
-      position: GRID[i] ?? [0, 0],
-    }));
-  }, [members, maxSlots]);
 
   return (
     <div className="w-full h-full select-none">
@@ -548,13 +600,13 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
 
         {/* Scene */}
         <Suspense fallback={null}>
-          {stations.map(({ idx, member, position }) => (
+          {stableSlots.map(({ idx, member, position }) => (
             <Station
               key={idx}
               member={member}
               index={idx}
               currentUserId={currentUserId}
-              position={position as [number, number]}
+              position={position}
             />
           ))}
           <ExitDoor />
