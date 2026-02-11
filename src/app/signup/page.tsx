@@ -1,11 +1,9 @@
 'use client';
 
-import { useState, useRef, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, useRef, useCallback, type FormEvent, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
-
-const OTP_LENGTH = 7;
 
 type Step = 'info' | 'otp';
 
@@ -13,7 +11,8 @@ export default function SignupPage() {
   const [step, setStep] = useState<Step>('info');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
+  const [otpLength, setOtpLength] = useState(6);
+  const [otp, setOtp] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { sendOtp, verifyOtp, updateDisplayName } = useAuth();
@@ -30,7 +29,10 @@ export default function SignupPage() {
     setError('');
     setLoading(true);
     try {
-      await sendOtp(email);
+      const length = await sendOtp(email);
+      setOtpLength(length);
+      setOtp(Array(length).fill(''));
+      otpRefs.current = Array(length).fill(null);
       setStep('otp');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'コードの送信に失敗しました');
@@ -40,8 +42,7 @@ export default function SignupPage() {
   };
 
   // Step 2: OTP検証 → 表示名設定 → ダッシュボード
-  const submitOtp = async (code: string) => {
-    if (code.length !== OTP_LENGTH) return;
+  const submitOtp = useCallback(async (code: string) => {
     setError('');
     setLoading(true);
     try {
@@ -53,53 +54,63 @@ export default function SignupPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [email, displayName, verifyOtp, updateDisplayName, router]);
 
   const handleVerifyOtp = async (e: FormEvent) => {
     e.preventDefault();
     const token = otp.join('');
-    if (token.length !== OTP_LENGTH) {
-      setError(`${OTP_LENGTH}桁のコードを入力してください`);
+    if (token.length !== otpLength) {
+      setError(`${otpLength}桁のコードを入力してください`);
       return;
     }
     await submitOtp(token);
   };
 
-  const handleOtpChange = (index: number, value: string) => {
+  const handleOtpChange = useCallback((index: number, value: string) => {
     if (!/^\d*$/.test(value)) return;
-    const newOtp = [...otp];
-    newOtp[index] = value.slice(-1);
-    setOtp(newOtp);
-    if (value && index < OTP_LENGTH - 1) {
+    setOtp((prev) => {
+      const next = [...prev];
+      next[index] = value.slice(-1);
+      if (next.every((d) => d !== '')) {
+        setTimeout(() => submitOtp(next.join('')), 100);
+      }
+      return next;
+    });
+    if (value && index < otpLength - 1) {
       otpRefs.current[index + 1]?.focus();
     }
-    if (newOtp.every((d) => d !== '')) {
-      setTimeout(() => submitOtp(newOtp.join('')), 100);
-    }
-  };
+  }, [otpLength, submitOtp]);
 
-  const handleOtpKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !otp[index] && index > 0) {
-      otpRefs.current[index - 1]?.focus();
+  const handleOtpKeyDown = useCallback((index: number, e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      setOtp((prev) => {
+        if (!prev[index] && index > 0) {
+          otpRefs.current[index - 1]?.focus();
+          const next = [...prev];
+          next[index - 1] = '';
+          return next;
+        }
+        return prev;
+      });
     }
-  };
+  }, []);
 
-  const handleOtpPaste = (e: React.ClipboardEvent) => {
+  const handleOtpPaste = useCallback((e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, OTP_LENGTH);
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, otpLength);
     if (pasted.length > 0) {
-      const newOtp = Array(OTP_LENGTH).fill('');
-      for (let i = 0; i < OTP_LENGTH; i++) {
-        newOtp[i] = pasted[i] || '';
+      const newOtp = Array(otpLength).fill('');
+      for (let i = 0; i < pasted.length; i++) {
+        newOtp[i] = pasted[i];
       }
       setOtp(newOtp);
-      if (pasted.length === OTP_LENGTH) {
+      if (pasted.length === otpLength) {
         setTimeout(() => submitOtp(newOtp.join('')), 100);
       } else {
         otpRefs.current[pasted.length]?.focus();
       }
     }
-  };
+  }, [otpLength, submitOtp]);
 
   return (
     <div className="min-h-dvh flex items-center justify-center px-6">
@@ -191,11 +202,11 @@ export default function SignupPage() {
               認証コード
             </h1>
             <p className="text-text-muted text-sm mb-2">
-              <span className="text-text-secondary">{email}</span> に送信されたコードを入力
+              <span className="text-text-secondary">{email}</span> に送信された{otpLength}桁のコードを入力
             </p>
             <button
               type="button"
-              onClick={() => { setStep('info'); setOtp(Array(OTP_LENGTH).fill('')); setError(''); }}
+              onClick={() => { setStep('info'); setOtp([]); setError(''); }}
               className="text-amber text-xs hover:text-amber-soft transition-colors mb-8 inline-block"
             >
               戻って修正
@@ -247,7 +258,14 @@ export default function SignupPage() {
                 type="button"
                 onClick={async () => {
                   setLoading(true);
-                  try { await sendOtp(email); setError(''); } catch { setError('再送信に失敗しました'); } finally { setLoading(false); }
+                  try {
+                    const length = await sendOtp(email);
+                    setOtpLength(length);
+                    setOtp(Array(length).fill(''));
+                    otpRefs.current = Array(length).fill(null);
+                    setError('');
+                  } catch { setError('再送信に失敗しました'); }
+                  finally { setLoading(false); }
                 }}
                 className="text-amber hover:text-amber-soft transition-colors"
                 disabled={loading}

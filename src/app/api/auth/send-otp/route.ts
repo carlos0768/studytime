@@ -80,7 +80,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, otpLength: otp.length });
   } catch (err) {
     console.error('send-otp error:', err);
     return NextResponse.json(

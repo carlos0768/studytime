@@ -26,9 +26,9 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  // メールOTP送信（Resend API経由）
+  // メールOTP送信（Resend API経由）→ OTP桁数を返す
   const sendOtp = useCallback(
-    async (email: string) => {
+    async (email: string): Promise<number> => {
       const res = await fetch('/api/auth/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -38,6 +38,7 @@ export function useAuth() {
       if (!res.ok) {
         throw new Error(data.error || 'コードの送信に失敗しました');
       }
+      return data.otpLength ?? 6;
     },
     []
   );
