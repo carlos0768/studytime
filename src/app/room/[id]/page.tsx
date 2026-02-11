@@ -29,7 +29,7 @@ function StudyTimerRing({
   const strokeDashoffset = circumference * (1 - progress);
 
   return (
-    <div className="relative inline-flex items-center justify-center scale-[0.55] sm:scale-100 origin-top-right sm:origin-center">
+    <div className="room-timer-ring relative inline-flex items-center justify-center">
       <svg
         width={size}
         height={size}
@@ -64,7 +64,7 @@ function StudyTimerRing({
       {/* Center content */}
       <div className="absolute inset-0 flex items-center justify-center">
         <p
-          className="text-lg font-bold text-text-primary tracking-tight"
+          className="room-timer-text text-lg font-bold text-text-primary tracking-tight"
           style={{ fontFamily: 'var(--font-mono)' }}
         >
           {formattedTime}
@@ -525,8 +525,8 @@ export default function RoomPage() {
 
       {/* Main content area */}
       <main className="flex-1 min-h-0 relative overflow-hidden">
-        {/* Timer Ring — mobile: floating top-right overlay, sm+: centered above room */}
-        <div className="absolute top-1 right-1 z-10 sm:relative sm:top-auto sm:right-auto sm:z-auto sm:flex sm:justify-center sm:py-2">
+        {/* Timer Ring (responsive behavior lives in globals.css) */}
+        <div className="room-timer-overlay">
           <StudyTimerRing
             studyingSeconds={studyingSeconds}
             secondsSinceLastPoint={secondsSinceLastPoint}

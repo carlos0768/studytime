@@ -243,3 +243,53 @@ body::before {
   transform: rotate(-90deg);
   transform-origin: 50% 50%;
 }
+
+/* Room timer placement/scale */
+.room-timer-overlay {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 0.25rem);
+  right: calc(env(safe-area-inset-right, 0px) + 0.25rem);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.room-timer-ring {
+  transform: scale(0.55);
+  transform-origin: top right;
+}
+
+@media (min-width: 640px) {
+  .room-timer-overlay {
+    position: relative;
+    top: auto;
+    right: auto;
+    display: flex;
+    justify-content: center;
+    padding: 0.5rem 0;
+  }
+
+  .room-timer-ring {
+    transform: scale(1);
+    transform-origin: center;
+  }
+}
+
+/* Smartphone landscape: keep timer out of layout flow and smaller */
+@media (orientation: landscape) and (max-height: 560px) {
+  .room-timer-overlay {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 2px);
+    right: calc(env(safe-area-inset-right, 0px) + 8px);
+    display: block;
+    padding: 0;
+  }
+
+  .room-timer-ring {
+    transform: scale(0.42);
+    transform-origin: top right;
+  }
+
+  .room-timer-text {
+    font-size: 0.9rem;
+  }
+}
