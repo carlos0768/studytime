@@ -26,18 +26,20 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  // メールOTP送信
+  // メールOTP送信（Resend API経由）
   const sendOtp = useCallback(
     async (email: string) => {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: true,
-        },
+      const res = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
       });
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'コードの送信に失敗しました');
+      }
     },
-    [supabase]
+    []
   );
 
   // OTP検証（セッション作成）
