@@ -229,6 +229,19 @@ export default function RoomPage() {
     userIdRef.current = user?.id || '';
   }, [user?.id]);
 
+  // 自習室表示中はページ全体のスクロールを完全に無効化
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    html.classList.add('room-scroll-lock');
+    body.classList.add('room-scroll-lock');
+
+    return () => {
+      html.classList.remove('room-scroll-lock');
+      body.classList.remove('room-scroll-lock');
+    };
+  }, []);
+
   const finalizeStudySessionFallback = useCallback(
     async ({
       sessionId,

@@ -52,6 +52,20 @@ body {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* Room page: disable page scroll entirely while mounted */
+html.room-scroll-lock,
+body.room-scroll-lock {
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
+}
+
+body.room-scroll-lock {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+}
+
 /* Noise texture overlay */
 body::before {
   content: '';
