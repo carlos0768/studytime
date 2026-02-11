@@ -9,6 +9,7 @@ import { useBGM } from '@/hooks/use-bgm';
 import { useVoiceChat } from '@/hooks/use-voice-chat';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { MAX_ROOM_MEMBERS, POINTS_INTERVAL_MINUTES } from '@/lib/constants';
+import { IsometricRoom } from '@/components/isometric-room';
 
 function StudyTimerRing({
   studyingSeconds,
@@ -21,16 +22,11 @@ function StudyTimerRing({
 }) {
   const totalSeconds = POINTS_INTERVAL_MINUTES * 60;
   const progress = secondsSinceLastPoint / totalSeconds;
-  const radius = 120;
-  const strokeWidth = 6;
+  const radius = 44;
+  const strokeWidth = 3;
   const size = (radius + strokeWidth) * 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - progress);
-
-  // 次のポイントまでの残り時間
-  const remaining = totalSeconds - secondsSinceLastPoint;
-  const remainMin = Math.floor(remaining / 60);
-  const remainSec = remaining % 60;
 
   return (
     <div className="relative inline-flex items-center justify-center">
@@ -69,139 +65,10 @@ function StudyTimerRing({
       {/* Center content */}
       <div className="absolute inset-0 flex items-center justify-center">
         <p
-          className="text-4xl md:text-5xl font-bold text-text-primary tracking-tight"
+          className="text-lg font-bold text-text-primary tracking-tight"
           style={{ fontFamily: 'var(--font-mono)' }}
         >
           {formattedTime}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function ProgressRingSmall({
-  secondsSinceLastPoint,
-}: {
-  secondsSinceLastPoint: number;
-}) {
-  const totalSeconds = POINTS_INTERVAL_MINUTES * 60;
-  const progress = secondsSinceLastPoint / totalSeconds;
-  const radius = 22;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference * (1 - progress);
-
-  const minutes = Math.floor(
-    (totalSeconds - secondsSinceLastPoint) / 60
-  );
-  const seconds = (totalSeconds - secondsSinceLastPoint) % 60;
-
-  return (
-    <div className="relative inline-flex items-center justify-center">
-      <svg width="54" height="54" viewBox="0 0 54 54">
-        <circle
-          cx="27"
-          cy="27"
-          r={radius}
-          fill="none"
-          stroke="var(--color-slate-mid)"
-          strokeWidth="3"
-        />
-        <circle
-          cx="27"
-          cy="27"
-          r={radius}
-          fill="none"
-          stroke="var(--color-amber)"
-          strokeWidth="3"
-          strokeLinecap="round"
-          style={{
-            strokeDasharray: circumference,
-            strokeDashoffset,
-            transform: 'rotate(-90deg)',
-            transformOrigin: '50% 50%',
-          }}
-        />
-      </svg>
-    </div>
-  );
-}
-
-const MEMBER_ACCENTS = [
-  { border: 'rgba(158, 196, 176, 0.25)', bg: 'rgba(158, 196, 176, 0.06)', dot: 'rgba(158, 196, 176, 0.7)', text: 'rgb(158, 196, 176)' },
-  { border: 'rgba(150, 178, 204, 0.25)', bg: 'rgba(150, 178, 204, 0.06)', dot: 'rgba(150, 178, 204, 0.7)', text: 'rgb(150, 178, 204)' },
-  { border: 'rgba(192, 168, 140, 0.25)', bg: 'rgba(192, 168, 140, 0.06)', dot: 'rgba(192, 168, 140, 0.7)', text: 'rgb(192, 168, 140)' },
-  { border: 'rgba(180, 160, 196, 0.25)', bg: 'rgba(180, 160, 196, 0.06)', dot: 'rgba(180, 160, 196, 0.7)', text: 'rgb(180, 160, 196)' },
-];
-
-function MemberSlot({
-  member,
-  isCurrentUser,
-  formatTime,
-  index,
-}: {
-  member?: { display_name: string; status: string; studying_minutes: number };
-  isCurrentUser?: boolean;
-  formatTime: (s: number) => string;
-  index: number;
-}) {
-  if (!member) {
-    return (
-      <div className="glass-card p-4 flex items-center justify-center h-[76px] opacity-40">
-        <p className="text-text-muted text-sm">空席</p>
-      </div>
-    );
-  }
-
-  const isStudying = member.status === 'studying';
-  const accent = MEMBER_ACCENTS[index % MEMBER_ACCENTS.length];
-
-  return (
-    <div
-      className="glass-card flex items-center gap-2.5 h-[76px] overflow-hidden"
-      style={{
-        padding: '12px 16px',
-        borderColor: accent.border,
-        background: `linear-gradient(135deg, ${accent.bg} 0%, transparent 70%)`,
-      }}
-    >
-      {/* Status indicator */}
-      <div className="flex-shrink-0">
-        <div
-          className="w-2.5 h-2.5 rounded-full"
-          style={{
-            background: isStudying ? accent.dot : 'rgba(201, 123, 123, 0.5)',
-            opacity: isStudying ? 1 : 0.6,
-          }}
-        />
-      </div>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-text-primary truncate">
-          {member.display_name}
-          {isCurrentUser && (
-            <span className="text-text-muted text-[10px] ml-1.5">（あなた）</span>
-          )}
-        </p>
-        <p
-          className="text-[10px] mt-0.5"
-          style={{ color: isStudying ? accent.text : 'rgb(201, 123, 123)' }}
-        >
-          {isStudying ? '自習中' : '離席中'}
-        </p>
-      </div>
-
-      {/* Study time */}
-      <div className="flex-shrink-0 text-right">
-        <p
-          className={`text-xs font-medium ${
-            isStudying ? 'text-text-primary' : 'text-text-muted'
-          }`}
-          style={{ fontFamily: 'var(--font-mono)' }}
-        >
-          {member.studying_minutes >= 60
-            ? `${Math.floor(member.studying_minutes / 60)}h${member.studying_minutes % 60}m`
-            : `${member.studying_minutes}m`}
         </p>
       </div>
     </div>
@@ -321,7 +188,6 @@ export default function RoomPage() {
     isStudying,
     pointsEarned,
     formattedTime,
-    formatTime,
   } = useStudyTimer();
 
   const displayName =
@@ -379,7 +245,7 @@ export default function RoomPage() {
   });
 
   return (
-    <div className="min-h-dvh flex flex-col">
+    <div className="h-dvh flex flex-col overflow-hidden">
       {/* Top bar */}
       <header
         className="flex items-center justify-between px-5 py-3 border-b border-slate-deep/60"
@@ -429,9 +295,9 @@ export default function RoomPage() {
       </header>
 
       {/* Main content area */}
-      <main className="flex-1 flex flex-col items-center justify-center px-5 py-8 gap-10">
-        {/* Timer Ring */}
-        <div>
+      <main className="flex-1 min-h-0 flex flex-col items-center justify-center px-4 py-2 gap-2 overflow-hidden">
+        {/* Timer Ring (compact) */}
+        <div className="shrink-0">
           <StudyTimerRing
             studyingSeconds={studyingSeconds}
             secondsSinceLastPoint={secondsSinceLastPoint}
@@ -439,25 +305,13 @@ export default function RoomPage() {
           />
         </div>
 
-        {/* Members grid */}
-        <div className="w-full max-w-md grid grid-cols-2 gap-3">
-          {memberSlots.map((member, i) => (
-            <MemberSlot
-              key={member?.user_id || `empty-${i}`}
-              index={i}
-              member={
-                member
-                  ? {
-                      display_name: member.display_name,
-                      status: member.status,
-                      studying_minutes: member.studying_minutes,
-                    }
-                  : undefined
-              }
-              isCurrentUser={member?.user_id === user?.id}
-              formatTime={formatTime}
-            />
-          ))}
+        {/* Isometric Room View */}
+        <div className="flex-1 min-h-0 w-full flex items-center justify-center">
+          <IsometricRoom
+            members={memberSlots}
+            currentUserId={user?.id || ''}
+            maxSlots={MAX_ROOM_MEMBERS}
+          />
         </div>
       </main>
 
