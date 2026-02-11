@@ -47,6 +47,7 @@ export function useStudyTimer() {
         // すぐに離席にせず、少し待つ（ナビゲーション中の一瞬の非表示を無視）
         awayTimeoutRef.current = setTimeout(() => {
           setIsStudying(false);
+          setStudyingSeconds(0);
           setSecondsSinceLastPoint(0);
           stopTimer();
         }, AWAY_DEBOUNCE_MS);
@@ -69,6 +70,7 @@ export function useStudyTimer() {
         awayTimeoutRef.current = null;
       }
       setIsStudying(false);
+      setStudyingSeconds(0);
       setSecondsSinceLastPoint(0);
       stopTimer();
     };
