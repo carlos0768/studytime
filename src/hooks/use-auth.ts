@@ -26,13 +26,13 @@ export function useAuth() {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  const signUp = useCallback(
-    async (email: string, password: string, displayName: string) => {
-      const { error } = await supabase.auth.signUp({
+  // メールOTP送信
+  const sendOtp = useCallback(
+    async (email: string) => {
+      const { error } = await supabase.auth.signInWithOtp({
         email,
-        password,
         options: {
-          data: { display_name: displayName },
+          shouldCreateUser: true,
         },
       });
       if (error) throw error;
@@ -40,13 +40,39 @@ export function useAuth() {
     [supabase]
   );
 
-  const signIn = useCallback(
-    async (email: string, password: string) => {
-      const { error } = await supabase.auth.signInWithPassword({
+  // OTP検証（セッション作成）
+  const verifyOtp = useCallback(
+    async (email: string, token: string) => {
+      const { data, error } = await supabase.auth.verifyOtp({
         email,
-        password,
+        token,
+        type: 'email',
       });
       if (error) throw error;
+      return data;
+    },
+    [supabase]
+  );
+
+  // 表示名の更新（auth metadata + usersテーブル）
+  const updateDisplayName = useCallback(
+    async (displayName: string) => {
+      // 1. auth metadata を更新
+      const { data, error } = await supabase.auth.updateUser({
+        data: { display_name: displayName },
+      });
+      if (error) throw error;
+
+      // 2. users テーブルも更新
+      if (data.user) {
+        await supabase
+          .from('users')
+          .update({ display_name: displayName })
+          .eq('id', data.user.id);
+      }
+
+      // ローカルのuser stateを更新
+      setUser(data.user);
     },
     [supabase]
   );
@@ -56,5 +82,5 @@ export function useAuth() {
     if (error) throw error;
   }, [supabase]);
 
-  return { user, loading, signUp, signIn, signOut };
+  return { user, loading, sendOtp, verifyOtp, updateDisplayName, signOut };
 }

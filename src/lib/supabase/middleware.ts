@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 const PROTECTED_PATHS = ['/dashboard', '/room'];
-const AUTH_PATHS = ['/login', '/signup'];
+const AUTH_PATHS = ['/login'];
 
 function isValidUrl(str: string | undefined): str is string {
   if (!str) return false;

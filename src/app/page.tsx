@@ -52,13 +52,10 @@ export default function LandingPage() {
           ルームを作って招待コードを共有。10分集中で1ポイント獲得。
         </p>
 
-        {/* CTA buttons */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link href="/signup" className="btn-primary w-full sm:w-auto text-center">
-            アカウントを作成
-          </Link>
-          <Link href="/login" className="btn-ghost w-full sm:w-auto text-center">
-            ログイン
+        {/* CTA button */}
+        <div className="flex items-center justify-center">
+          <Link href="/login" className="btn-primary w-full sm:w-auto text-center">
+            ログイン / 新規登録
           </Link>
         </div>
       </div>
