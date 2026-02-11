@@ -602,7 +602,7 @@ function EnteringCharacter({
     }
 
     const SIT_DURATION = 900;
-    const BOW_DURATION = 550;
+    const BOW_DURATION = 1100;
     const walkBudget = Math.max(TOTAL_ENTER_DURATION - SIT_DURATION - BOW_DURATION, 0);
     const moveTotalLength = toBowTotalLength + afterBowTotalLength;
     const WALK_TO_BOW_DURATION =
