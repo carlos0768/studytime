@@ -29,12 +29,11 @@ function StudyTimerRing({
   const strokeDashoffset = circumference * (1 - progress);
 
   return (
-    <div className="relative inline-flex items-center justify-center">
+    <div className="relative inline-flex items-center justify-center scale-[0.55] sm:scale-100 origin-top-right">
       <svg
         width={size}
         height={size}
         viewBox={`0 0 ${size} ${size}`}
-       
       >
         {/* Background circle */}
         <circle
@@ -265,16 +264,16 @@ export default function RoomPage() {
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
-      {/* Top bar */}
+      {/* Top bar (compact on mobile) */}
       <header
-        className="flex items-center justify-between px-5 py-3 border-b border-slate-deep/60"
-        style={{ paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))' }}
+        className="flex items-center justify-between px-4 py-1.5 sm:px-5 sm:py-3 border-b border-slate-deep/60"
+        style={{ paddingTop: 'calc(4px + env(safe-area-inset-top, 0px))' }}
       >
         <button
           onClick={handleLeave}
-          className="inline-flex items-center gap-2 text-text-muted text-sm hover:text-text-secondary transition-colors"
+          className="inline-flex items-center gap-1.5 text-text-muted text-xs sm:text-sm hover:text-text-secondary transition-colors"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M19 12H5" />
             <path d="m12 19-7-7 7-7" />
           </svg>
@@ -282,16 +281,16 @@ export default function RoomPage() {
         </button>
 
         {/* Status */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <div
-            className={`w-2 h-2 rounded-full ${
+            className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full ${
               isStudying
                 ? 'bg-sage'
                 : 'bg-rose-muted'
             }`}
           />
           <span
-            className={`text-sm font-medium ${
+            className={`text-xs sm:text-sm font-medium ${
               isStudying ? 'text-sage' : 'text-rose-muted'
             }`}
           >
@@ -300,12 +299,12 @@ export default function RoomPage() {
         </div>
 
         {/* Points */}
-        <div className="flex items-center gap-1.5">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <div className="flex items-center gap-1">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
           </svg>
           <span
-            className="text-amber text-sm font-bold"
+            className="text-amber text-xs sm:text-sm font-bold"
             style={{ fontFamily: 'var(--font-mono)' }}
           >
             {pointsEarned}
@@ -314,9 +313,11 @@ export default function RoomPage() {
       </header>
 
       {/* Main content area */}
-      <main className="flex-1 min-h-0 flex flex-col items-center justify-center px-4 py-2 gap-2 overflow-hidden">
-        {/* Timer Ring (compact) */}
-        <div className="shrink-0">
+      <main className="flex-1 min-h-0 relative overflow-hidden">
+        {/* Timer Ring — floating top-right overlay */}
+        <div
+          className="absolute top-2 right-2 sm:top-4 sm:right-4 z-10"
+        >
           <StudyTimerRing
             studyingSeconds={studyingSeconds}
             secondsSinceLastPoint={secondsSinceLastPoint}
@@ -325,7 +326,7 @@ export default function RoomPage() {
         </div>
 
         {/* Isometric Room View */}
-        <div className="flex-1 min-h-0 w-full flex items-center justify-center">
+        <div className="w-full h-full flex items-center justify-center">
           <IsometricRoom
             members={memberSlots}
             currentUserId={user?.id || ''}
@@ -334,10 +335,10 @@ export default function RoomPage() {
         </div>
       </main>
 
-      {/* Footer */}
+      {/* Footer (compact on mobile) */}
       <footer
-        className="border-t border-slate-deep/60 px-5 py-4"
-        style={{ paddingBottom: 'calc(16px + env(safe-area-inset-bottom, 0px))' }}
+        className="border-t border-slate-deep/60 px-4 py-1.5 sm:px-5 sm:py-4"
+        style={{ paddingBottom: 'calc(4px + env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="max-w-md mx-auto flex items-center justify-center gap-1">
           <BGMControls />
