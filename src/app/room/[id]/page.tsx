@@ -295,7 +295,7 @@ export default function RoomPage() {
               isStudying ? 'text-sage' : 'text-rose-muted'
             }`}
           >
-            {isStudying ? '集中モード' : '離席中'}
+            {isStudying ? '' : '離席中'}
           </span>
         </div>
 
