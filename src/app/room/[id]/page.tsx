@@ -192,7 +192,7 @@ export default function RoomPage() {
   const displayName =
     user?.user_metadata?.display_name || 'ユーザー';
 
-  const { members } = useRoom({
+  const { members, leave: leaveRoom } = useRoom({
     roomId,
     userId: user?.id || '',
     displayName,
@@ -245,7 +245,8 @@ export default function RoomPage() {
     if (user) setReady(true);
   }, [user, authLoading, router]);
 
-  const handleLeave = () => {
+  const handleLeave = async () => {
+    await leaveRoom();
     router.push('/dashboard');
   };
 

@@ -117,5 +117,13 @@ export function useRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStudying]);
 
-  return { members };
+  const leave = async () => {
+    if (channelRef.current) {
+      await channelRef.current.untrack();
+      await channelRef.current.unsubscribe();
+      channelRef.current = null;
+    }
+  };
+
+  return { members, leave };
 }
