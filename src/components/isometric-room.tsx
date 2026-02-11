@@ -312,6 +312,49 @@ function ExitingCharacter({
   const startPos = stationPos.clone().add(charOffset);
   const doorTarget = new THREE.Vector3(DOOR_POSITION[0], 0, DOOR_POSITION[2]);
 
+  // Build waypoints to avoid collisions with other desks/characters
+  // Route: startPos → (waypoints) → doorTarget → off-screen
+  const waypoints = useMemo(() => {
+    const pts: THREE.Vector3[] = [startPos.clone()];
+    const slotGrid = GRID[exitingMember.slotIndex];
+    if (slotGrid) {
+      const sx = slotGrid[0];
+      const sz = slotGrid[1];
+      // Back row (Z > 0): step out behind desk first, then walk along the aisle
+      if (sz > 0) {
+        // Step back behind the desk (Z + offset to clear desk depth)
+        pts.push(new THREE.Vector3(sx, 0, sz + 1.0));
+        // Walk to the right side aisle
+        pts.push(new THREE.Vector3(DOOR_POSITION[0], 0, sz + 1.0));
+      }
+      // Front-right slot: can go straight to door
+      // Front-left slot: step out then go right
+      else if (sx < 0) {
+        // Step away from desk
+        pts.push(new THREE.Vector3(sx, 0, sz - 0.8));
+        // Walk along the front aisle to the right
+        pts.push(new THREE.Vector3(DOOR_POSITION[0], 0, sz - 0.8));
+      }
+    }
+    pts.push(doorTarget.clone());
+    // Off-screen continuation point
+    const lastDir = doorTarget.clone().sub(pts[pts.length - 2] || startPos).normalize();
+    pts.push(doorTarget.clone().add(lastDir.multiplyScalar(4)));
+    return pts;
+  }, [exitingMember.slotIndex, startPos, doorTarget]);
+
+  // Compute total path length for constant-speed walking
+  const { segLengths, totalLength } = useMemo(() => {
+    const lengths: number[] = [];
+    let total = 0;
+    for (let i = 1; i < waypoints.length; i++) {
+      const d = waypoints[i].distanceTo(waypoints[i - 1]);
+      lengths.push(d);
+      total += d;
+    }
+    return { segLengths: lengths, totalLength: total };
+  }, [waypoints]);
+
   useFrame(() => {
     if (!groupRef.current || completedRef.current) return;
 
@@ -324,31 +367,54 @@ function ExitingCharacter({
       return;
     }
 
-    // Phase timing (ms)
     const STAND_END = 1500;
-    const WALK_END = 5000;
 
     if (elapsed < STAND_END) {
       // Phase 1: Stand up
       const t = easeInOutCubic(elapsed / STAND_END);
-      // Legs: -π/2 → 0
       const legAngle = -Math.PI / 2 * (1 - t);
       if (legLeftRef.current) legLeftRef.current.rotation.x = legAngle;
       if (legRightRef.current) legRightRef.current.rotation.x = legAngle;
-      // Rise up slightly
       group.position.set(startPos.x, t * 0.15, startPos.z);
     } else {
-      // Phase 2+3: Walk to door then continue off-screen at constant speed
-      const walkT = (elapsed - STAND_END) / (WALK_END - STAND_END);
-      // walkT 0→1 = start→door, >1 = past door off-screen
-      const dirX = doorTarget.x - startPos.x;
-      const dirZ = doorTarget.z - startPos.z;
-      const x = startPos.x + dirX * walkT;
-      const z = startPos.z + dirZ * walkT;
-      group.position.set(x, 0.15, z);
-      // Face door direction
-      const angle = Math.atan2(dirX, dirZ);
-      group.rotation.y = angle;
+      // Phase 2: Walk along waypoints at constant speed
+      const walkT = (elapsed - STAND_END) / (TOTAL_EXIT_DURATION - STAND_END);
+      const targetDist = walkT * totalLength;
+
+      // Find which segment we're on
+      let accumulated = 0;
+      let posX = startPos.x;
+      let posZ = startPos.z;
+      let dirX = 0;
+      let dirZ = 0;
+      for (let i = 0; i < segLengths.length; i++) {
+        if (accumulated + segLengths[i] >= targetDist) {
+          const segT = (targetDist - accumulated) / segLengths[i];
+          const from = waypoints[i];
+          const to = waypoints[i + 1];
+          posX = from.x + (to.x - from.x) * segT;
+          posZ = from.z + (to.z - from.z) * segT;
+          dirX = to.x - from.x;
+          dirZ = to.z - from.z;
+          break;
+        }
+        accumulated += segLengths[i];
+        // Past all segments — clamp to end
+        if (i === segLengths.length - 1) {
+          const last = waypoints[waypoints.length - 1];
+          posX = last.x;
+          posZ = last.z;
+          const prev = waypoints[waypoints.length - 2];
+          dirX = last.x - prev.x;
+          dirZ = last.z - prev.z;
+        }
+      }
+
+      group.position.set(posX, 0.15, posZ);
+      // Face movement direction
+      if (dirX !== 0 || dirZ !== 0) {
+        group.rotation.y = Math.atan2(dirX, dirZ);
+      }
       // Walking leg cycle
       const walkCycle = Math.sin((elapsed - STAND_END) * 0.012) * 0.5;
       if (legLeftRef.current) legLeftRef.current.rotation.x = walkCycle;
