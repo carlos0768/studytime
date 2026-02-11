@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const resendApiKey = process.env.RESEND_API_KEY!;
-    const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@example.com';
+    const fromEmail = 'noreply@merken.jp';
 
     // Supabase Admin クライアントで OTP 付きマジックリンクを生成
     const supabase = createClient(supabaseUrl, serviceRoleKey, {
