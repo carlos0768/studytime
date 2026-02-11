@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
 
-const OTP_LENGTH = 7;
+const OTP_LENGTH = 6;
 
 type Step = 'info' | 'otp';
 
