@@ -337,9 +337,8 @@ function ExitingCharacter({
       }
     }
     pts.push(doorTarget.clone());
-    // Off-screen continuation point
-    const lastDir = doorTarget.clone().sub(pts[pts.length - 2] || startPos).normalize();
-    pts.push(doorTarget.clone().add(lastDir.multiplyScalar(4)));
+    // Off-screen: always walk through the door (X+ direction, past the right edge)
+    pts.push(new THREE.Vector3(doorTarget.x + 4, 0, doorTarget.z));
     return pts;
   }, [exitingMember.slotIndex, startPos, doorTarget]);
 
