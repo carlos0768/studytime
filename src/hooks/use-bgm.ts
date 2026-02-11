@@ -164,9 +164,12 @@ export function useBGM() {
               // タイトル取得失敗は無視
             }
           },
-          onStateChange: (event: { data: number }) => {
-            // 1 = PLAYING, 2 = PAUSED
-            if (event.data === 1) {
+          onStateChange: (event: { data: number; target: { playVideo: () => void } }) => {
+            // 0 = ENDED, 1 = PLAYING, 2 = PAUSED
+            if (event.data === 0) {
+              // Loop: restart when ended
+              event.target.playVideo();
+            } else if (event.data === 1) {
               setIsPlaying(true);
             } else if (event.data === 2) {
               setIsPlaying(false);
