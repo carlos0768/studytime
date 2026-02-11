@@ -870,6 +870,12 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
     let changedExiting = false;
     let changedEntering = false;
 
+    // 新規入室者本人の画面では入室アニメを表示しない
+    if (currentUserId && newEntering.has(currentUserId)) {
+      newEntering.delete(currentUserId);
+      changedEntering = true;
+    }
+
     // Users who left
     for (const uid of prevIds) {
       if (!currentIds.has(uid) && !newExiting.has(uid)) {
@@ -905,6 +911,9 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
 
     // Users who joined — play enter animation from door to slot
     for (const uid of currentIds) {
+      if (uid === currentUserId) {
+        continue;
+      }
       if (!prevIds.has(uid) && !newEntering.has(uid)) {
         const slotIndex = slotMapRef.current.get(uid);
         const member = activeMemberMap.get(uid);

@@ -60,12 +60,6 @@ body.room-scroll-lock {
   height: 100%;
 }
 
-body.room-scroll-lock {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-}
-
 /* Noise texture overlay */
 body::before {
   content: '';

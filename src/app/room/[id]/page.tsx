@@ -233,10 +233,21 @@ export default function RoomPage() {
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
+    const allowScrollTarget = (target: EventTarget | null) =>
+      target instanceof Element && !!target.closest('input[type="range"]');
+    const preventScroll = (event: Event) => {
+      if (allowScrollTarget(event.target)) return;
+      event.preventDefault();
+    };
+
     html.classList.add('room-scroll-lock');
     body.classList.add('room-scroll-lock');
+    window.addEventListener('wheel', preventScroll, { passive: false });
+    window.addEventListener('touchmove', preventScroll, { passive: false });
 
     return () => {
+      window.removeEventListener('wheel', preventScroll);
+      window.removeEventListener('touchmove', preventScroll);
       html.classList.remove('room-scroll-lock');
       body.classList.remove('room-scroll-lock');
     };
