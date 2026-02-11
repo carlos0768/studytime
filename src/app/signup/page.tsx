@@ -7,20 +7,26 @@ import { useAuth } from '@/hooks/use-auth';
 
 const OTP_LENGTH = 7;
 
-type Step = 'email' | 'otp';
+type Step = 'info' | 'otp';
 
-export default function LoginPage() {
-  const [step, setStep] = useState<Step>('email');
+export default function SignupPage() {
+  const [step, setStep] = useState<Step>('info');
+  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { sendOtp, verifyOtp } = useAuth();
+  const { sendOtp, verifyOtp, updateDisplayName } = useAuth();
   const router = useRouter();
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // Step 1: 表示名 + メール → OTP送信
   const handleSendOtp = async (e: FormEvent) => {
     e.preventDefault();
+    if (!displayName.trim()) {
+      setError('表示名を入力してください');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
@@ -33,12 +39,14 @@ export default function LoginPage() {
     }
   };
 
+  // Step 2: OTP検証 → 表示名設定 → ダッシュボード
   const submitOtp = async (code: string) => {
     if (code.length !== OTP_LENGTH) return;
     setError('');
     setLoading(true);
     try {
       await verifyOtp(email, code);
+      await updateDisplayName(displayName.trim());
       router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : '認証に失敗しました');
@@ -96,7 +104,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-dvh flex items-center justify-center px-6">
       <div
-        className="pointer-events-none absolute top-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full opacity-[0.05]"
+        className="pointer-events-none absolute bottom-[-10%] left-[-10%] w-[600px] h-[600px] rounded-full opacity-[0.05]"
         style={{
           background: 'radial-gradient(circle, var(--color-sage) 0%, transparent 70%)',
         }}
@@ -114,13 +122,13 @@ export default function LoginPage() {
           戻る
         </Link>
 
-        {step === 'email' && (
+        {step === 'info' && (
           <>
             <h1 className="text-3xl font-bold mb-2" style={{ fontFamily: 'var(--font-display)' }}>
-              おかえりなさい
+              はじめよう
             </h1>
             <p className="text-text-muted text-sm mb-8">
-              メールアドレスに認証コードを送信します
+              アカウントを作成して自習室に参加
             </p>
 
             {error && (
@@ -132,6 +140,21 @@ export default function LoginPage() {
             <form onSubmit={handleSendOtp} className="space-y-5">
               <div>
                 <label className="block text-text-secondary text-sm font-medium mb-2">
+                  表示名
+                </label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="input-field"
+                  placeholder="あなたの名前"
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-text-secondary text-sm font-medium mb-2">
                   メールアドレス
                 </label>
                 <input
@@ -141,9 +164,9 @@ export default function LoginPage() {
                   className="input-field"
                   placeholder="you@example.com"
                   required
-                  autoFocus
                 />
               </div>
+
               <button type="submit" className="btn-primary w-full" disabled={loading}>
                 {loading ? (
                   <span className="inline-block w-5 h-5 border-2 border-midnight/30 border-t-midnight rounded-full animate-spin" />
@@ -154,9 +177,9 @@ export default function LoginPage() {
             </form>
 
             <p className="mt-8 text-center text-text-muted text-sm">
-              アカウントをお持ちでない方は{' '}
-              <Link href="/signup" className="text-amber hover:text-amber-soft transition-colors font-medium">
-                新規登録
+              既にアカウントをお持ちの方は{' '}
+              <Link href="/login" className="text-amber hover:text-amber-soft transition-colors font-medium">
+                ログイン
               </Link>
             </p>
           </>
@@ -172,10 +195,10 @@ export default function LoginPage() {
             </p>
             <button
               type="button"
-              onClick={() => { setStep('email'); setOtp(Array(OTP_LENGTH).fill('')); setError(''); }}
+              onClick={() => { setStep('info'); setOtp(Array(OTP_LENGTH).fill('')); setError(''); }}
               className="text-amber text-xs hover:text-amber-soft transition-colors mb-8 inline-block"
             >
-              メールアドレスを変更
+              戻って修正
             </button>
 
             {error && (
@@ -213,7 +236,7 @@ export default function LoginPage() {
                 {loading ? (
                   <span className="inline-block w-5 h-5 border-2 border-midnight/30 border-t-midnight rounded-full animate-spin" />
                 ) : (
-                  '認証する'
+                  'アカウントを作成'
                 )}
               </button>
             </form>
