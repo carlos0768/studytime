@@ -210,6 +210,25 @@ export default function RoomPage() {
   const [ready, setReady] = useState(false);
   const supabase = getSupabaseBrowserClient();
 
+  // スリープ防止（Wake Lock API）
+  useEffect(() => {
+    let wakeLock: WakeLockSentinel | null = null;
+    const request = async () => {
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+      } catch {}
+    };
+    request();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') request();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      wakeLock?.release();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
+
   // 入室時に study_session レコードを作成
   useEffect(() => {
     if (!user || !roomId) return;
