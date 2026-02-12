@@ -30,3 +30,17 @@
 - 修正ファイル:
   `/Users/haradakarurosukei/Desktop/Working/studytime1/src/app/api/matches/active/route.ts`
   `/Users/haradakarurosukei/Desktop/Working/studytime1/src/lib/supabase/middleware.ts`
+
+### [解決済み] 同じロビーにいるはずなのに片側で相手が見えない
+- 報告:
+  同時にロビーに入っている2ユーザーで、片側には双方表示されるが、もう片側では自分しか表示されないことがある。
+- 原因:
+  `useLobby` が Presence の `SUBSCRIBED` 時の初期追跡には対応していたが、
+  `CHANNEL_ERROR / TIMED_OUT / CLOSED` の復旧処理が無く、Realtime接続が一時不調になると
+  片側だけPresence同期が止まったままになるケースがあった。
+- 解決法:
+  `useLobby` に再接続ロジック（指数バックオフ）を追加し、
+  チャンネル異常時に再購読・再track するよう修正。
+  さらに Presence同期時は最新メタデータを採用してメンバー一覧を再構築するようにした。
+- 修正ファイル:
+  `/Users/haradakarurosukei/Desktop/Working/studytime1/src/hooks/use-lobby.ts`
