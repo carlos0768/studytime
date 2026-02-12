@@ -44,12 +44,7 @@ export default function LandingPage() {
           <span className="text-amber">Match</span>
         </h1>
 
-        <p className="text-text-secondary text-lg leading-relaxed mb-3">
-          どっちが先に折れるか。勉強を競技にする。
-        </p>
-        <p className="text-text-muted text-sm mb-12">
-          タブを閉じたら負け。ギブアップしたら負け。相手が折れるまで耐えろ。
-        </p>
+        <div className="mb-12" />
 
         {/* CTA buttons */}
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
