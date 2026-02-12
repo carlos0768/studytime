@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
+import { useLobby } from '@/hooks/use-lobby';
+import { ELO_DEFAULT_RATING } from '@/lib/constants';
 import type { User } from '@/types';
 
 interface MatchHistoryEntry {
@@ -34,6 +36,15 @@ export default function StatsPage() {
   const [profile, setProfile] = useState<User | null>(null);
   const [matches, setMatches] = useState<MatchHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [eloForLobby, setEloForLobby] = useState(ELO_DEFAULT_RATING);
+  const [nameForLobby, setNameForLobby] = useState('');
+
+  // Keep lobby presence alive while viewing stats
+  useLobby({
+    userId: user?.id || '',
+    displayName: nameForLobby || user?.user_metadata?.display_name || '',
+    eloRating: eloForLobby,
+  });
 
   const fetchData = useCallback(async () => {
     try {
@@ -43,7 +54,11 @@ export default function StatsPage() {
       ]);
       const statsData = await statsRes.json();
       const historyData = await historyRes.json();
-      if (statsData.profile) setProfile(statsData.profile);
+      if (statsData.profile) {
+        setProfile(statsData.profile);
+        setEloForLobby(statsData.profile.elo_rating);
+        setNameForLobby(statsData.profile.display_name);
+      }
       if (historyData.matches) setMatches(historyData.matches);
     } catch (err) {
       console.error('Failed to fetch stats:', err);
