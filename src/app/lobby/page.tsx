@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useLobby } from '@/hooks/use-lobby';
@@ -11,12 +11,33 @@ import { ELO_DEFAULT_RATING, MAX_LOBBY_MEMBERS } from '@/lib/constants';
 import { IsometricRoom } from '@/components/isometric-room';
 import type { ActiveMatchRoom, User } from '@/types';
 
+function formatStudyTimeWithSeconds(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, totalSeconds);
+  const h = Math.floor(safeSeconds / 3600);
+  const m = Math.floor((safeSeconds % 3600) / 60);
+  const s = safeSeconds % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function getLocalDateKey(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function LobbyPage() {
   const router = useRouter();
   const { user, loading: authLoading, signOut } = useAuth();
   const [profile, setProfile] = useState<User | null>(null);
   const [activeRooms, setActiveRooms] = useState<ActiveMatchRoom[]>([]);
+  const [recordedStudySeconds, setRecordedStudySeconds] = useState(0);
+  const [unsyncedStudySeconds, setUnsyncedStudySeconds] = useState(0);
+  const [todayBaselineSeconds, setTodayBaselineSeconds] = useState<number | null>(null);
   const supabase = getSupabaseBrowserClient();
+  const unsyncedStudyRef = useRef(0);
+  const savingStudyRef = useRef(false);
 
   const displayName = profile?.display_name || user?.user_metadata?.display_name || 'ユーザー';
   const eloRating = profile?.elo_rating ?? ELO_DEFAULT_RATING;
@@ -57,7 +78,9 @@ export default function LobbyPage() {
     let cancelled = false;
     supabase.from('users').select('*').eq('id', user.id).single().then(({ data }) => {
       if (!cancelled && data) {
-        setProfile(data as User);
+        const userProfile = data as User;
+        setProfile(userProfile);
+        setRecordedStudySeconds(userProfile.total_study_seconds || 0);
       }
     });
 
@@ -65,6 +88,105 @@ export default function LobbyPage() {
       cancelled = true;
     };
   }, [user, authLoading, router, supabase]);
+
+  const flushStudyTime = useCallback(
+    async (force: boolean) => {
+      if (!user || savingStudyRef.current) return;
+
+      const pendingSeconds = unsyncedStudyRef.current;
+      if (pendingSeconds <= 0) return;
+      if (!force && pendingSeconds < 20) return;
+
+      savingStudyRef.current = true;
+      try {
+        const res = await fetch('/api/study/time', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seconds: pendingSeconds }),
+          keepalive: force,
+        });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (typeof data.total_study_seconds === 'number') {
+          setRecordedStudySeconds(data.total_study_seconds);
+        } else {
+          setRecordedStudySeconds((prev) => prev + pendingSeconds);
+        }
+        unsyncedStudyRef.current = Math.max(0, unsyncedStudyRef.current - pendingSeconds);
+        setUnsyncedStudySeconds((prev) => Math.max(0, prev - pendingSeconds));
+      } catch {
+        // ignore transient network failures; periodic flush will retry
+      } finally {
+        savingStudyRef.current = false;
+      }
+    },
+    [user]
+  );
+
+  useEffect(() => {
+    if (!user) return;
+
+    unsyncedStudyRef.current = 0;
+    setUnsyncedStudySeconds(0);
+
+    const tickTimer = setInterval(() => {
+      unsyncedStudyRef.current += 1;
+      setUnsyncedStudySeconds((prev) => prev + 1);
+    }, 1000);
+
+    const flushTimer = setInterval(() => {
+      void flushStudyTime(false);
+    }, 30_000);
+
+    const handlePageHide = () => {
+      const pending = unsyncedStudyRef.current;
+      if (pending <= 0) return;
+      if (!navigator.sendBeacon) return;
+
+      const payload = JSON.stringify({ seconds: pending });
+      const sent = navigator.sendBeacon(
+        '/api/study/time',
+        new Blob([payload], { type: 'application/json' })
+      );
+      if (sent) {
+        unsyncedStudyRef.current = 0;
+        setUnsyncedStudySeconds(0);
+        setRecordedStudySeconds((prev) => prev + pending);
+      }
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      clearInterval(tickTimer);
+      clearInterval(flushTimer);
+      void flushStudyTime(true);
+    };
+  }, [user, flushStudyTime]);
+
+  const todayDateKey = getLocalDateKey();
+
+  useEffect(() => {
+    if (!user) return;
+
+    const storageKey = `study_baseline:${user.id}:${todayDateKey}`;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      const parsed = raw ? Number(raw) : NaN;
+      const validParsed = Number.isFinite(parsed) ? Math.floor(parsed) : NaN;
+
+      if (!Number.isFinite(validParsed) || validParsed > recordedStudySeconds) {
+        localStorage.setItem(storageKey, String(recordedStudySeconds));
+        setTodayBaselineSeconds(recordedStudySeconds);
+        return;
+      }
+
+      setTodayBaselineSeconds(validParsed);
+    } catch {
+      setTodayBaselineSeconds(recordedStudySeconds);
+    }
+  }, [user, todayDateKey, recordedStudySeconds]);
 
   useEffect(() => {
     if (!user) return;
@@ -102,13 +224,17 @@ export default function LobbyPage() {
   // Navigate to match when it starts
   useEffect(() => {
     if (matchStarted) {
-      clearMatchStarted();
-      leaveLobby();
-      router.push(`/match/${matchStarted}`);
+      void (async () => {
+        await flushStudyTime(true);
+        clearMatchStarted();
+        await leaveLobby();
+        router.push(`/match/${matchStarted}`);
+      })();
     }
-  }, [matchStarted, clearMatchStarted, leaveLobby, router]);
+  }, [matchStarted, clearMatchStarted, leaveLobby, router, flushStudyTime]);
 
   const handleSignOut = async () => {
+    await flushStudyTime(true);
     await leaveLobby();
     await signOut();
     router.push('/');
@@ -144,6 +270,7 @@ export default function LobbyPage() {
   });
 
   const handleStartSingle = async () => {
+    await flushStudyTime(true);
     await leaveLobby();
     router.push('/single');
   };
@@ -155,6 +282,12 @@ export default function LobbyPage() {
       </div>
     );
   }
+
+  const totalStudySeconds = recordedStudySeconds + unsyncedStudySeconds;
+  const todayStudySeconds = Math.max(
+    0,
+    totalStudySeconds - (todayBaselineSeconds ?? recordedStudySeconds)
+  );
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden animate-fade-in">
@@ -211,6 +344,25 @@ export default function LobbyPage() {
 
       {/* Main: Isometric Room */}
       <main className="flex-1 min-h-0 relative overflow-hidden">
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 z-30 pointer-events-none">
+          <div
+            className="rounded-xl px-3 py-2 text-right"
+            style={{
+              background: 'rgba(0, 0, 0, 0.35)',
+              border: '1px solid rgba(158, 196, 176, 0.22)',
+              backdropFilter: 'blur(8px)',
+            }}
+          >
+            <p className="text-[10px] tracking-wide text-text-muted mb-0.5">その日の勉強時間</p>
+            <p className="text-sm font-semibold text-text-primary mb-1" style={{ fontFamily: 'var(--font-mono)' }}>
+              {formatStudyTimeWithSeconds(todayStudySeconds)}
+            </p>
+            <p className="text-[10px] tracking-wide text-text-muted mb-0.5">習慣勉強時間</p>
+            <p className="text-sm font-semibold text-text-primary" style={{ fontFamily: 'var(--font-mono)' }}>
+              {formatStudyTimeWithSeconds(totalStudySeconds)}
+            </p>
+          </div>
+        </div>
         <div className="w-full h-full flex items-center justify-center">
           <div className="w-full h-full -translate-y-[6%]">
             <IsometricRoom
