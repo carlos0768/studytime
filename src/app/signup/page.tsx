@@ -48,7 +48,7 @@ export default function SignupPage() {
     try {
       await verifyOtp(email, code);
       await updateDisplayName(displayName.trim());
-      router.push('/dashboard');
+      router.push('/lobby');
     } catch (err) {
       setError(err instanceof Error ? err.message : '認証に失敗しました');
     } finally {
@@ -139,7 +139,7 @@ export default function SignupPage() {
               はじめよう
             </h1>
             <p className="text-text-muted text-sm mb-8">
-              アカウントを作成して自習室に参加
+              アカウントを作成して対戦を始めよう
             </p>
 
             {error && (

@@ -53,10 +53,10 @@ export async function POST(request: Request) {
     const { error: emailError } = await resend.emails.send({
       from: fromEmail,
       to: email,
-      subject: 'StudyRoom — 認証コード',
+      subject: 'StudyMatch — 認証コード',
       html: `
         <div style="font-family: sans-serif; max-width: 400px; margin: 0 auto; padding: 32px 0;">
-          <h2 style="color: #333; margin-bottom: 8px;">StudyRoom ログイン</h2>
+          <h2 style="color: #333; margin-bottom: 8px;">StudyMatch ログイン</h2>
           <p style="color: #666; font-size: 14px; margin-bottom: 24px;">
             以下の認証コードを入力してください:
           </p>

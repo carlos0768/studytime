@@ -32,8 +32,7 @@ export default function LandingPage() {
             strokeLinejoin="round"
             className="text-amber"
           >
-            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
           </svg>
         </div>
 
@@ -42,14 +41,14 @@ export default function LandingPage() {
           style={{ fontFamily: 'var(--font-display)' }}
         >
           Study
-          <span className="text-amber">Room</span>
+          <span className="text-amber">Match</span>
         </h1>
 
         <p className="text-text-secondary text-lg leading-relaxed mb-3">
-          友達と一緒に集中できるオンライン自習室
+          どっちが先に折れるか。勉強を競技にする。
         </p>
         <p className="text-text-muted text-sm mb-12">
-          ルームを作って招待コードを共有。10分集中で1ポイント獲得。
+          タブを閉じたら負け。ギブアップしたら負け。相手が折れるまで耐えろ。
         </p>
 
         {/* CTA buttons */}
@@ -65,7 +64,7 @@ export default function LandingPage() {
 
       {/* Footer hint */}
       <div className="absolute bottom-8 text-text-muted text-xs tracking-wide opacity-0 animate-fade-in stagger-5">
-        集中を、みんなで。
+        覚悟を決めろ。
       </div>
     </div>
   );

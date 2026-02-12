@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Bricolage_Grotesque, Noto_Sans_JP, JetBrains_Mono } from 'next/font/google';
+import { ActiveMatchGuard } from '@/components/active-match-guard';
 import './globals.css';
 
 const bricolage = Bricolage_Grotesque({
@@ -24,13 +25,13 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'StudyRoom — オンライン自習室',
-  description: '友達と一緒にオンラインで勉強しよう。リアルタイム自習室アプリ。',
+  title: 'StudyMatch — 対戦型勉強耐久',
+  description: 'どっちが先に折れるか。勉強を競技にする対戦型耐久プラットフォーム。',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'StudyRoom',
+    title: 'StudyMatch',
   },
   icons: {
     icon: '/icon-192.png',
@@ -55,8 +56,8 @@ export default function RootLayout({
   return (
     <html lang="ja" className={`${bricolage.variable} ${notoSansJP.variable} ${jetbrainsMono.variable}`}>
       <body>
+        <ActiveMatchGuard />
         {children}
-        <div id="bgm-player" style={{ position: 'fixed', width: 0, height: 0, overflow: 'hidden' }} />
         <script
           dangerouslySetInnerHTML={{
             __html: `

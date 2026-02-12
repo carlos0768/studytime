@@ -40,7 +40,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await verifyOtp(email, code);
-      router.push('/dashboard');
+      router.push('/lobby');
     } catch (err) {
       setError(err instanceof Error ? err.message : '認証に失敗しました');
     } finally {

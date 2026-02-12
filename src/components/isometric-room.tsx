@@ -10,8 +10,7 @@ import * as THREE from 'three';
 interface RoomMember {
   user_id: string;
   display_name: string;
-  status: string;
-  studying_minutes: number;
+  elo_rating?: number;
 }
 
 interface IsometricRoomProps {
@@ -102,10 +101,10 @@ const GRID: [number, number][] = [
 
 function CharacterModel({
   modelPath,
-  isStudying,
+  isStudying = true,
 }: {
   modelPath: string;
-  isStudying: boolean;
+  isStudying?: boolean;
 }) {
   const { scene } = useGLTF(modelPath);
   const ref = useRef<THREE.Group>(null);
@@ -721,7 +720,6 @@ function Station({
   position: [number, number];
 }) {
   const modelPath = CHARACTER_MODELS[index % CHARACTER_MODELS.length];
-  const isStudying = member?.status === 'studying';
 
   return (
     <group position={[position[0], 0, position[1]]}>
@@ -729,7 +727,7 @@ function Station({
       {member && (
         <>
           <group position={[0, -0.15, -0.45]}>
-            <CharacterModel modelPath={modelPath} isStudying={isStudying ?? false} />
+            <CharacterModel modelPath={modelPath} />
           </group>
           <NameLabel
             name={member.display_name}
@@ -737,7 +735,7 @@ function Station({
           />
         </>
       )}
-      <Desk hasMember={!!member} isStudying={isStudying === true} />
+      <Desk hasMember={!!member} isStudying={true} />
     </group>
   );
 }
@@ -891,7 +889,7 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
         const prevMember = prevMembersMapRef.current.get(uid);
         if (slotIndex !== undefined) {
           newExiting.set(uid, {
-            member: prevMember ?? { user_id: uid, display_name: '', status: 'away', studying_minutes: 0 },
+            member: prevMember ?? { user_id: uid, display_name: '' },
             slotIndex,
             startTime: Date.now(),
             modelPath: CHARACTER_MODELS[slotIndex % CHARACTER_MODELS.length],

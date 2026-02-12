@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PROTECTED_PATHS = ['/dashboard', '/room'];
+const PROTECTED_PATHS = ['/lobby', '/match', '/result', '/stats'];
 const AUTH_PATHS = ['/login', '/signup'];
 
 function isValidUrl(str: string | undefined): str is string {
@@ -63,10 +63,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 認証済み → 認証パスにアクセス → /dashboard にリダイレクト
+  // 認証済み → 認証パスにアクセス → /lobby にリダイレクト
   if (user && AUTH_PATHS.some((p) => pathname.startsWith(p))) {
     const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
+    url.pathname = '/lobby';
     return NextResponse.redirect(url);
   }
 
