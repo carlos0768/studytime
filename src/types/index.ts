@@ -51,3 +51,12 @@ export interface MatchResult {
   durationSeconds: number;
   opponentName: string;
 }
+
+export interface ActiveMatchRoom {
+  match_id: string;
+  player1_id: string;
+  player2_id: string;
+  player1_name: string;
+  player2_name: string;
+  started_at: string;
+}

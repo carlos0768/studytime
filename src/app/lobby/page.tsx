@@ -9,12 +9,13 @@ import { useVoiceChat } from '@/hooks/use-voice-chat';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { ELO_DEFAULT_RATING, MAX_LOBBY_MEMBERS } from '@/lib/constants';
 import { IsometricRoom } from '@/components/isometric-room';
-import type { User } from '@/types';
+import type { ActiveMatchRoom, User } from '@/types';
 
 export default function LobbyPage() {
   const router = useRouter();
   const { user, loading: authLoading, signOut } = useAuth();
   const [profile, setProfile] = useState<User | null>(null);
+  const [activeRooms, setActiveRooms] = useState<ActiveMatchRoom[]>([]);
   const supabase = getSupabaseBrowserClient();
 
   const displayName = profile?.display_name || user?.user_metadata?.display_name || 'ユーザー';
@@ -64,6 +65,39 @@ export default function LobbyPage() {
       cancelled = true;
     };
   }, [user, authLoading, router, supabase]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+
+    const fetchActiveRooms = async () => {
+      try {
+        const params = new URLSearchParams({
+          limit: '8',
+          exclude_user_id: user.id,
+        });
+        const res = await fetch(`/api/matches/active?${params.toString()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.rooms)) {
+          setActiveRooms(data.rooms as ActiveMatchRoom[]);
+        }
+      } catch {
+        // Ignore transient fetch failures for spectator rooms
+      }
+    };
+
+    void fetchActiveRooms();
+    const timer = setInterval(() => {
+      void fetchActiveRooms();
+    }, 8_000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [user]);
 
   // Navigate to match when it starts
   useEffect(() => {
@@ -150,6 +184,7 @@ export default function LobbyPage() {
               members={memberSlots}
               currentUserId={user?.id || ''}
               maxSlots={MAX_LOBBY_MEMBERS}
+              spectatorRooms={activeRooms}
             />
           </div>
         </div>

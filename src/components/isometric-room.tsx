@@ -4,6 +4,7 @@ import React, { useMemo, useRef, useEffect, useLayoutEffect, useState, useCallba
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, OrthographicCamera, Html } from '@react-three/drei';
 import * as THREE from 'three';
+import type { ActiveMatchRoom } from '@/types';
 
 /* ───────────────────────── Types ───────────────────────── */
 
@@ -17,6 +18,7 @@ interface IsometricRoomProps {
   members: (RoomMember | null)[];
   currentUserId: string;
   maxSlots: number;
+  spectatorRooms?: ActiveMatchRoom[];
 }
 
 interface ExitingMember {
@@ -40,6 +42,24 @@ const TOTAL_EXIT_DURATION = 8750; // ms
 const TOTAL_ENTER_DURATION = 6200; // ms
 const ENTER_WALK_CYCLE_SPEED = 0.008;
 const TORII_SCALE = 1.2;
+const DEFAULT_ZOOM = 88;
+const MIN_ZOOM = 42;
+const MAX_ZOOM = 152;
+const SPECTATOR_VISIBLE_ZOOM = 68;
+const PAN_RADIUS = 10.8;
+const PAN_SENSITIVITY = 0.015;
+const ISO_PAN_RIGHT = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+const ISO_PAN_DOWN = { x: Math.SQRT1_2, z: Math.SQRT1_2 };
+const SPECTATOR_ROOM_POSITIONS: [number, number][] = [
+  [-6.4, -3.8],
+  [0, -4.9],
+  [6.4, -3.8],
+  [-6.4, 3.8],
+  [0, 4.9],
+  [6.4, 3.8],
+  [-8.8, 0],
+  [8.8, 0],
+];
 
 function getStationRotationY(slotIndex: number): number {
   return STATION_ROTATIONS[slotIndex] ?? 0;
@@ -886,22 +906,153 @@ function Station({
   );
 }
 
+/* ── Spectator Room Helpers ── */
+function MiniAvatar({
+  position,
+  color,
+}: {
+  position: [number, number, number];
+  color: string;
+}) {
+  return (
+    <group position={position}>
+      <mesh castShadow>
+        <capsuleGeometry args={[0.08, 0.22, 4, 8]} />
+        <meshStandardMaterial color={color} roughness={0.75} />
+      </mesh>
+      <mesh position={[0, 0.21, 0]} castShadow>
+        <sphereGeometry args={[0.08, 10, 10]} />
+        <meshStandardMaterial color="#f1d5bb" roughness={0.58} />
+      </mesh>
+    </group>
+  );
+}
+
+function MiniCampfire() {
+  const flameRef = useRef<THREE.Mesh>(null);
+  const glowRef = useRef<THREE.Mesh>(null);
+
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    const flicker = Math.sin(t * 10 + 0.7) * 0.55 + Math.sin(t * 6.3) * 0.45;
+
+    if (flameRef.current) {
+      flameRef.current.scale.set(1 + flicker * 0.07, 1 + flicker * 0.22, 1 + flicker * 0.04);
+      const material = flameRef.current.material as THREE.MeshStandardMaterial;
+      material.emissiveIntensity = 1.1 + Math.max(0, flicker) * 0.35;
+    }
+
+    if (glowRef.current) {
+      const material = glowRef.current.material as THREE.MeshBasicMaterial;
+      material.opacity = 0.14 + Math.max(0, flicker) * 0.1;
+    }
+  });
+
+  return (
+    <group position={[0, 0, 0]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+        <circleGeometry args={[0.28, 18]} />
+        <meshStandardMaterial color="#3f2518" emissive="#8a3116" emissiveIntensity={0.18} />
+      </mesh>
+      <mesh ref={flameRef} position={[0, 0.18, 0]}>
+        <coneGeometry args={[0.08, 0.22, 9]} />
+        <meshStandardMaterial color="#ffa03a" emissive="#ff6b1a" emissiveIntensity={1.1} transparent opacity={0.9} />
+      </mesh>
+      <mesh ref={glowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.021, 0]}>
+        <circleGeometry args={[0.44, 18]} />
+        <meshBasicMaterial color="#ff9d4a" transparent opacity={0.16} />
+      </mesh>
+    </group>
+  );
+}
+
+function SpectatorMatchRoom({
+  room,
+  position,
+  roomIndex,
+}: {
+  room: ActiveMatchRoom;
+  position: [number, number];
+  roomIndex: number;
+}) {
+  return (
+    <group position={[position[0], 0, position[1]]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
+        <circleGeometry args={[2.1, 36]} />
+        <meshBasicMaterial color="#c98f66" transparent opacity={0.12} />
+      </mesh>
+
+      {GRID.map(([x, z], idx) => (
+        <group
+          key={`spectator-bench-${room.match_id}-${idx}`}
+          position={[x * 0.37, 0, z * 0.37]}
+          rotation={[0, getStationRotationY(idx), 0]}
+          scale={[0.44, 0.44, 0.44]}
+        >
+          <Bench />
+        </group>
+      ))}
+
+      <MiniCampfire />
+
+      <MiniAvatar position={[0, 0.12, -0.62]} color="#5d85c8" />
+      <MiniAvatar position={[0, 0.12, 0.62]} color="#b86464" />
+
+      <Html position={[0, 2.4, 0]} center>
+        <div
+          style={{
+            color: 'rgba(255,255,255,0.78)',
+            fontSize: '10px',
+            fontWeight: 500,
+            fontFamily: "'Noto Sans JP', sans-serif",
+            textShadow: '0 1px 4px rgba(0,0,0,0.85)',
+            whiteSpace: 'nowrap',
+            lineHeight: 1.2,
+            pointerEvents: 'none',
+            userSelect: 'none',
+            textAlign: 'center',
+            padding: '2px 6px',
+            borderRadius: '999px',
+            background: 'rgba(0,0,0,0.32)',
+          }}
+        >
+          <div style={{ fontWeight: 700, letterSpacing: '0.04em' }}>
+            対戦ルーム {roomIndex + 1}
+          </div>
+          <div>{room.player1_name} vs {room.player2_name}</div>
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 /* ── Camera Setup ── */
-function CameraSetup() {
+function CameraSetup({
+  zoomLevel,
+  cameraCenter,
+}: {
+  zoomLevel: number;
+  cameraCenter: { x: number; z: number };
+}) {
   const cameraRef = useRef<THREE.OrthographicCamera>(null);
   const { size } = useThree();
 
-  // Responsive zoom: scale down on narrow screens
-  const zoom = useMemo(() => {
+  const responsiveFactor = useMemo(() => {
     const minDim = Math.min(size.width, size.height);
-    if (minDim < 400) return 50;
-    if (minDim < 600) return 60;
-    return 80;
+    if (minDim < 400) return 0.62;
+    if (minDim < 600) return 0.76;
+    return 1;
   }, [size.width, size.height]);
+  const zoom = zoomLevel * responsiveFactor;
 
   useFrame(() => {
     if (cameraRef.current) {
-      cameraRef.current.lookAt(0, 0.5, 0);
+      cameraRef.current.position.set(
+        10 + cameraCenter.x,
+        10,
+        10 + cameraCenter.z
+      );
+      cameraRef.current.lookAt(cameraCenter.x, 0.5, cameraCenter.z);
       cameraRef.current.zoom = zoom;
       cameraRef.current.updateProjectionMatrix();
     }
@@ -912,9 +1063,9 @@ function CameraSetup() {
       ref={cameraRef}
       makeDefault
       zoom={zoom}
-      position={[10, 10, 10]}
+      position={[10 + cameraCenter.x, 10, 10 + cameraCenter.z]}
       near={0.1}
-      far={100}
+      far={200}
     />
   );
 }
@@ -923,7 +1074,15 @@ function CameraSetup() {
    Main Exported Component
    ═══════════════════════════════════════════════════════════ */
 
-export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoomProps) {
+export function IsometricRoom({
+  members,
+  currentUserId,
+  maxSlots,
+  spectatorRooms = [],
+}: IsometricRoomProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   // Stable user_id → slot mapping (persists across re-renders)
   const slotMapRef = useRef<Map<string, number>>(new Map());
   const prevSlotMapRef = useRef<Map<string, number>>(new Map());
@@ -931,6 +1090,8 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
   const prevMembersMapRef = useRef<Map<string, RoomMember>>(new Map());
   const [exitingMembers, setExitingMembers] = useState<Map<string, ExitingMember>>(new Map());
   const [enteringMembers, setEnteringMembers] = useState<Map<string, EnteringMember>>(new Map());
+  const [zoomLevel, setZoomLevel] = useState(DEFAULT_ZOOM);
+  const [cameraCenter, setCameraCenter] = useState({ x: 0, z: 0 });
   const prevUserIdsRef = useRef<Set<string>>(new Set());
   const hasHydratedPresenceRef = useRef(false);
 
@@ -1114,14 +1275,109 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
     [enteringMembers]
   );
 
+  const visibleSpectatorRooms = useMemo(
+    () => spectatorRooms.slice(0, SPECTATOR_ROOM_POSITIONS.length),
+    [spectatorRooms]
+  );
+  const showSpectatorRooms = zoomLevel <= SPECTATOR_VISIBLE_ZOOM && visibleSpectatorRooms.length > 0;
+
+  const clampZoom = useCallback((v: number) => {
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v));
+  }, []);
+
+  const clampCameraCenter = useCallback((x: number, z: number) => {
+    const length = Math.hypot(x, z);
+    if (length <= PAN_RADIUS || length === 0) {
+      return { x, z };
+    }
+    const scale = PAN_RADIUS / length;
+    return { x: x * scale, z: z * scale };
+  }, []);
+
+  const zoomIn = useCallback(() => {
+    setZoomLevel((prev) => clampZoom(prev + 12));
+  }, [clampZoom]);
+
+  const zoomOut = useCallback(() => {
+    setZoomLevel((prev) => clampZoom(prev - 12));
+  }, [clampZoom]);
+
+  const zoomReset = useCallback(() => {
+    setZoomLevel(DEFAULT_ZOOM);
+  }, []);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 && event.pointerType !== 'touch') return;
+    dragPointerIdRef.current = event.pointerId;
+    lastPointerRef.current = { x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (dragPointerIdRef.current !== event.pointerId || !lastPointerRef.current) return;
+      const dx = event.clientX - lastPointerRef.current.x;
+      const dy = event.clientY - lastPointerRef.current.y;
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+
+      const factor = PAN_SENSITIVITY * (zoomLevel / DEFAULT_ZOOM);
+      const screenDeltaX = -dx * factor;
+      const screenDeltaY = -dy * factor;
+      const worldDeltaX =
+        screenDeltaX * ISO_PAN_RIGHT.x + screenDeltaY * ISO_PAN_DOWN.x;
+      const worldDeltaZ =
+        screenDeltaX * ISO_PAN_RIGHT.z + screenDeltaY * ISO_PAN_DOWN.z;
+
+      setCameraCenter((prev) =>
+        clampCameraCenter(prev.x + worldDeltaX, prev.z + worldDeltaZ)
+      );
+    },
+    [clampCameraCenter, zoomLevel]
+  );
+
+  const handlePointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragPointerIdRef.current !== event.pointerId) return;
+    dragPointerIdRef.current = null;
+    lastPointerRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }, []);
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+
+    // Prevent browser/page zoom gestures on the canvas area.
+    const blockPageZoom = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+      }
+    };
+
+    node.addEventListener('wheel', blockPageZoom, { passive: false });
+    return () => {
+      node.removeEventListener('wheel', blockPageZoom);
+    };
+  }, []);
+
   return (
-    <div className="w-full h-full select-none">
+    <div
+      ref={containerRef}
+      className="w-full h-full select-none relative"
+      style={{ touchAction: 'none' }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+      onPointerLeave={handlePointerEnd}
+    >
       <Canvas
         shadows
         gl={{ antialias: true, alpha: true }}
         style={{ background: 'transparent' }}
       >
-        <CameraSetup />
+        <CameraSetup zoomLevel={zoomLevel} cameraCenter={cameraCenter} />
 
         {/* Lighting */}
         <ambientLight intensity={0.6} />
@@ -1163,6 +1419,35 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
 
         {/* Scene */}
         <Suspense fallback={null}>
+          {showSpectatorRooms &&
+            visibleSpectatorRooms.map((room, idx) => (
+              <SpectatorMatchRoom
+                key={room.match_id}
+                room={room}
+                position={SPECTATOR_ROOM_POSITIONS[idx] as [number, number]}
+                roomIndex={idx}
+              />
+            ))}
+          <Html position={[0, 3.05, 0]} center>
+            <div
+              style={{
+                color: 'rgba(255,255,255,0.86)',
+                fontSize: '11px',
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                fontFamily: "'Noto Sans JP', sans-serif",
+                textShadow: '0 1px 4px rgba(0,0,0,0.85)',
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+                userSelect: 'none',
+                padding: '2px 8px',
+                borderRadius: '999px',
+                background: 'rgba(0,0,0,0.32)',
+              }}
+            >
+              ロビー
+            </div>
+          </Html>
           <Campfire />
           {stableSlots.map(({ idx, member, position }) => {
             const hiddenDuringEnter =
@@ -1194,6 +1479,51 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
           ))}
         </Suspense>
       </Canvas>
+
+      <div
+        className="absolute right-3 top-3 z-20 flex flex-col gap-2 pointer-events-auto"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div
+          className="text-[10px] text-center rounded-md px-2 py-1"
+          style={{ background: 'rgba(0,0,0,0.28)', color: 'var(--color-text-muted)' }}
+        >
+          Zoom {Math.round(zoomLevel)}
+        </div>
+        <button
+          type="button"
+          onClick={zoomOut}
+          className="btn-ghost text-xs"
+          style={{ padding: '5px 10px', fontSize: '0.72rem' }}
+        >
+          -
+        </button>
+        <button
+          type="button"
+          onClick={zoomIn}
+          className="btn-ghost text-xs"
+          style={{ padding: '5px 10px', fontSize: '0.72rem' }}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={zoomReset}
+          className="btn-ghost text-xs"
+          style={{ padding: '5px 10px', fontSize: '0.72rem' }}
+        >
+          戻す
+        </button>
+      </div>
+
+      <div className="absolute left-3 top-3 z-20 pointer-events-none">
+        <p
+          className="text-[10px] uppercase tracking-wider"
+          style={{ color: showSpectatorRooms ? 'var(--color-sage)' : 'var(--color-text-muted)' }}
+        >
+          {showSpectatorRooms ? '観戦ルーム表示中' : 'ズームアウトで他ルーム表示'}
+        </p>
+      </div>
     </div>
   );
 }
