@@ -25,8 +25,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'StudyMatch — 対戦型勉強耐久',
-  description: 'どっちが先に折れるか。勉強を競技にする対戦型耐久プラットフォーム。',
+  title: 'サウナ',
+  description: 'サウナ',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
