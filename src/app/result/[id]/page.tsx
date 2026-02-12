@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { useVoiceChat } from '@/hooks/use-voice-chat';
 import type { MatchResult } from '@/types';
 
 function formatDuration(seconds: number): string {
@@ -22,11 +21,16 @@ export default function ResultPage() {
   const { user, loading: authLoading } = useAuth();
   const [result, setResult] = useState<MatchResult | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-
-  const { isMuted, toggleMute } = useVoiceChat({
-    roomId: `result:${matchId}`,
-    userId: user?.id || '',
-  });
+  const storedResult = useMemo<MatchResult | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = sessionStorage.getItem(`match_result_${matchId}`);
+      return stored ? (JSON.parse(stored) as MatchResult) : null;
+    } catch {
+      return null;
+    }
+  }, [matchId]);
+  const displayResult = result ?? storedResult;
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -35,14 +39,8 @@ export default function ResultPage() {
     }
     if (!user) return;
 
-    // Load result from sessionStorage first
-    const stored = sessionStorage.getItem(`match_result_${matchId}`);
-    if (stored) {
-      try {
-        setResult(JSON.parse(stored));
-        return;
-      } catch {}
-    }
+    // Skip fetch when sessionStorage already has the result
+    if (storedResult) return;
 
     // Fallback: fetch result from API (e.g., tab_hidden loss where sendBeacon had no response)
     const fetchResult = async () => {
@@ -72,9 +70,9 @@ export default function ResultPage() {
       }
     };
     fetchResult();
-  }, [matchId, user, authLoading, router]);
+  }, [matchId, user, authLoading, router, storedResult]);
 
-  if (authLoading || (!result && !loadFailed)) {
+  if (authLoading || (!displayResult && !loadFailed)) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-amber/30 border-t-amber rounded-full animate-spin" />
@@ -82,7 +80,7 @@ export default function ResultPage() {
     );
   }
 
-  if (!result) {
+  if (!displayResult) {
     return (
       <div className="min-h-dvh flex flex-col items-center justify-center px-6 gap-4">
         <p className="text-text-muted text-sm">対戦結果を取得できませんでした</p>
@@ -93,7 +91,7 @@ export default function ResultPage() {
     );
   }
 
-  const eloSign = result.eloChange >= 0 ? '+' : '';
+  const eloSign = displayResult.eloChange >= 0 ? '+' : '';
 
   return (
     <div className="min-h-dvh flex flex-col items-center justify-center px-6">
@@ -101,7 +99,7 @@ export default function ResultPage() {
       <div
         className="pointer-events-none fixed top-[-15%] left-[50%] translate-x-[-50%] w-[700px] h-[700px] rounded-full opacity-[0.06]"
         style={{
-          background: result.isWinner
+          background: displayResult.isWinner
             ? 'radial-gradient(circle, var(--color-sage) 0%, transparent 70%)'
             : 'radial-gradient(circle, var(--color-rose-muted) 0%, transparent 70%)',
         }}
@@ -113,13 +111,13 @@ export default function ResultPage() {
           className="text-6xl font-extrabold mb-2 tracking-tight"
           style={{
             fontFamily: 'var(--font-display)',
-            color: result.isWinner ? 'var(--color-sage)' : 'var(--color-rose-muted)',
+            color: displayResult.isWinner ? 'var(--color-sage)' : 'var(--color-rose-muted)',
           }}
         >
-          {result.isWinner ? 'WIN' : 'LOSE'}
+          {displayResult.isWinner ? 'WIN' : 'LOSE'}
         </p>
         <p className="text-text-muted text-sm mb-10">
-          vs {result.opponentName}
+          vs {displayResult.opponentName}
         </p>
 
         {/* Stats */}
@@ -127,7 +125,7 @@ export default function ResultPage() {
           <div className="glass-card p-5">
             <p className="text-text-muted text-xs uppercase tracking-wider mb-2">対戦時間</p>
             <p className="text-2xl font-bold text-text-primary" style={{ fontFamily: 'var(--font-mono)' }}>
-              {formatDuration(result.durationSeconds)}
+              {formatDuration(displayResult.durationSeconds)}
             </p>
           </div>
           <div className="glass-card p-5">
@@ -136,46 +134,15 @@ export default function ResultPage() {
               className="text-2xl font-bold"
               style={{
                 fontFamily: 'var(--font-mono)',
-                color: result.eloChange >= 0 ? 'var(--color-sage)' : 'var(--color-rose-muted)',
+                color: displayResult.eloChange >= 0 ? 'var(--color-sage)' : 'var(--color-rose-muted)',
               }}
             >
-              {eloSign}{result.eloChange}
+              {eloSign}{displayResult.eloChange}
             </p>
             <p className="text-text-muted text-xs mt-1" style={{ fontFamily: 'var(--font-mono)' }}>
-              {result.eloBefore} → {result.eloAfter}
+              {displayResult.eloBefore} → {displayResult.eloAfter}
             </p>
           </div>
-        </div>
-
-        {/* Voice chat for post-game */}
-        <div className="flex items-center justify-center gap-4 mb-8">
-          <button
-            onClick={toggleMute}
-            className="inline-flex items-center gap-2 text-sm transition-colors px-4 py-2 rounded-lg"
-            style={{
-              background: 'rgba(51, 51, 51, 0.3)',
-              border: '1px solid rgba(51, 51, 51, 0.5)',
-              color: isMuted ? 'var(--color-text-muted)' : 'var(--color-text-secondary)',
-            }}
-          >
-            {isMuted ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="1" y1="1" x2="23" y2="23" />
-                <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
-                <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-            )}
-            感想戦
-          </button>
         </div>
 
         {/* Actions */}

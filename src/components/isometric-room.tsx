@@ -41,6 +41,10 @@ const TOTAL_ENTER_DURATION = 6200; // ms
 const ENTER_WALK_CYCLE_SPEED = 0.008;
 const TORII_SCALE = 1.2;
 
+function getStationRotationY(slotIndex: number): number {
+  return STATION_ROTATIONS[slotIndex] ?? 0;
+}
+
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
@@ -48,14 +52,14 @@ function easeInOutCubic(t: number): number {
 function getCharacterSeatPosition(slotIndex: number): THREE.Vector3 {
   const grid = GRID[slotIndex];
   if (!grid) return new THREE.Vector3(0, 0, 0);
-  return new THREE.Vector3(grid[0], -0.15, grid[1] - 0.45);
+  return new THREE.Vector3(grid[0], -0.12, grid[1]);
 }
 
 function buildStationToDoorPath(slotIndex: number): THREE.Vector3[] {
   const startPos = getCharacterSeatPosition(slotIndex);
   const doorTarget = new THREE.Vector3(DOOR_POSITION[0], 0, DOOR_POSITION[2]);
 
-  // Build waypoints to avoid collisions with desks/chairs
+  // Build waypoints to avoid collisions with benches and the fire pit
   const pts: THREE.Vector3[] = [startPos.clone()];
   const slotGrid = GRID[slotIndex];
   if (slotGrid) {
@@ -89,10 +93,17 @@ CHARACTER_MODELS.forEach((path) => useGLTF.preload(path));
 /* ──────────────── Station Grid (3D positions) ─────────────── */
 
 const GRID: [number, number][] = [
-  [-1.2, -0.8],
-  [1.2, -0.8],
-  [-1.2, 0.8],
-  [1.2, 0.8],
+  [0, -1.55],   // south side
+  [1.75, 0],    // east side
+  [0, 1.55],    // north side
+  [-1.75, 0],   // west side
+];
+
+const STATION_ROTATIONS: number[] = [
+  0,
+  -Math.PI / 2,
+  Math.PI,
+  Math.PI / 2,
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -130,7 +141,7 @@ function CharacterModel({
       }
       if (child.name === 'arm-left' || child.name === 'arm-right') {
         if (isStudying) {
-          child.rotation.x = -Math.PI / 6; // Arms forward to desk
+          child.rotation.x = -Math.PI / 10; // Relaxed seated pose for waiting room
         } else {
           child.rotation.x = -Math.PI / 2.5; // Arms raised holding phone
         }
@@ -170,68 +181,194 @@ function CharacterModel({
   );
 }
 
-/* ── Desk ── */
-function Desk({ hasMember, isStudying }: { hasMember: boolean; isStudying: boolean }) {
+/* ── Bench ── */
+function Bench() {
   return (
-    <group position={[0, 0.25, 0.5]}>
-      {/* Desk top */}
-      <mesh position={[0, 0, 0]}>
-        <boxGeometry args={[1.2, 0.06, 0.7]} />
-        <meshStandardMaterial color="#54463a" />
+    <group position={[0, 0.24, 0]}>
+      {/* Seat plank */}
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[2.05, 0.08, 0.62]} />
+        <meshStandardMaterial color="#5b4636" roughness={0.88} />
+      </mesh>
+      {/* Back support */}
+      <mesh position={[0, 0.3, -0.28]} castShadow>
+        <boxGeometry args={[2.05, 0.28, 0.07]} />
+        <meshStandardMaterial color="#4b3a2c" roughness={0.86} />
       </mesh>
       {/* Legs */}
-      {[[-0.5, -0.13, -0.25], [0.5, -0.13, -0.25], [-0.5, -0.13, 0.25], [0.5, -0.13, 0.25]].map(
+      {[[-0.9, -0.16, -0.2], [0.9, -0.16, -0.2], [-0.9, -0.16, 0.2], [0.9, -0.16, 0.2]].map(
         ([x, y, z], i) => (
-          <mesh key={i} position={[x, y, z]}>
-            <boxGeometry args={[0.06, 0.26, 0.06]} />
-            <meshStandardMaterial color="#1c1c1c" />
+          <mesh key={i} position={[x, y, z]} castShadow>
+            <boxGeometry args={[0.08, 0.32, 0.08]} />
+            <meshStandardMaterial color="#2a2520" roughness={0.9} />
           </mesh>
         )
-      )}
-      {/* Open textbook (studying) */}
-      {hasMember && isStudying && (
-        <group position={[0, 0.04, -0.05]}>
-          <mesh position={[-0.14, 0, 0]} rotation={[0, 0, 0.05]}>
-            <boxGeometry args={[0.26, 0.015, 0.34]} />
-            <meshStandardMaterial color="#f0e8d8" />
-          </mesh>
-          <mesh position={[0.14, 0, 0]} rotation={[0, 0, -0.05]}>
-            <boxGeometry args={[0.26, 0.015, 0.34]} />
-            <meshStandardMaterial color="#ede5d3" />
-          </mesh>
-          <mesh position={[0, -0.005, 0]}>
-            <boxGeometry args={[0.03, 0.025, 0.36]} />
-            <meshStandardMaterial color="#8b4513" />
-          </mesh>
-        </group>
       )}
     </group>
   );
 }
 
-/* ── Chair ── */
-function Chair() {
+/* ── Campfire ── */
+function Campfire() {
+  const flameOuterRef = useRef<THREE.Mesh>(null);
+  const flameInnerRef = useRef<THREE.Mesh>(null);
+  const glowRef = useRef<THREE.Mesh>(null);
+  const coreGlowRef = useRef<THREE.Mesh>(null);
+  const fireLightRef = useRef<THREE.PointLight>(null);
+  const emberRefs = useRef<Array<THREE.Mesh | null>>([]);
+  const emberSeeds = useMemo(
+    () =>
+      Array.from({ length: 8 }, (_, i) => ({
+        phase: i * 0.9 + (i % 2) * 0.35,
+        radius: 0.06 + (i % 4) * 0.02,
+        height: 0.22 + (i % 3) * 0.1,
+        speed: 0.24 + (i % 5) * 0.05,
+      })),
+    []
+  );
+
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+
+    const fastFlicker = Math.sin(t * 15.5) * 0.55 + Math.sin(t * 9.8 + 0.7) * 0.45;
+    const wideFlicker = Math.sin(t * 4.3 + 0.4) * 0.5 + Math.sin(t * 2.7) * 0.5;
+    const flicker = fastFlicker * 0.65 + wideFlicker * 0.35;
+
+    if (flameOuterRef.current) {
+      flameOuterRef.current.position.y = 0.34 + flicker * 0.035;
+      flameOuterRef.current.scale.set(1 + flicker * 0.12, 1 + flicker * 0.32, 1 + flicker * 0.08);
+      flameOuterRef.current.rotation.y = Math.sin(t * 3.6) * 0.18;
+      const material = flameOuterRef.current.material as THREE.MeshStandardMaterial;
+      material.emissiveIntensity = 1.45 + flicker * 0.45;
+    }
+
+    if (flameInnerRef.current) {
+      flameInnerRef.current.position.y = 0.3 + flicker * 0.03;
+      flameInnerRef.current.scale.set(1 + flicker * 0.08, 1 + flicker * 0.22, 1 + flicker * 0.05);
+      flameInnerRef.current.rotation.y = -Math.sin(t * 4.2) * 0.14;
+      const material = flameInnerRef.current.material as THREE.MeshStandardMaterial;
+      material.emissiveIntensity = 1.75 + flicker * 0.35;
+    }
+
+    if (glowRef.current) {
+      glowRef.current.scale.setScalar(1 + flicker * 0.14);
+      const material = glowRef.current.material as THREE.MeshBasicMaterial;
+      material.opacity = 0.24 + Math.max(0, flicker) * 0.2;
+    }
+
+    if (coreGlowRef.current) {
+      coreGlowRef.current.scale.setScalar(1 + flicker * 0.1);
+      const material = coreGlowRef.current.material as THREE.MeshBasicMaterial;
+      material.opacity = 0.42 + Math.max(0, flicker) * 0.25;
+    }
+
+    if (fireLightRef.current) {
+      fireLightRef.current.intensity = 1.9 + Math.max(0, flicker) * 1.35;
+      fireLightRef.current.position.y = 0.56 + Math.sin(t * 6.2) * 0.03;
+    }
+
+    emberRefs.current.forEach((ember, i) => {
+      if (!ember) return;
+      const seed = emberSeeds[i];
+      const rise = (t * seed.speed + seed.phase) % 1;
+      const angle = t * (1.8 + i * 0.16) + seed.phase;
+      ember.position.set(
+        Math.cos(angle) * (seed.radius + rise * 0.05),
+        0.24 + rise * seed.height,
+        Math.sin(angle) * (seed.radius + rise * 0.05)
+      );
+
+      const scale = 0.45 + (1 - rise) * 0.8;
+      ember.scale.setScalar(scale);
+
+      const mat = ember.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.max(0, (1 - rise) * 0.85);
+    });
+  });
+
   return (
-    <group position={[0, 0.2, -0.5]}>
-      {/* Seat */}
-      <mesh position={[0, 0, 0]}>
-        <boxGeometry args={[0.6, 0.06, 0.5]} />
-        <meshStandardMaterial color="#1c1c1c" />
+    <group position={[0, 0, 0]}>
+      {/* Coal bed */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} receiveShadow>
+        <circleGeometry args={[0.4, 20]} />
+        <meshStandardMaterial color="#3a2316" emissive="#8a2a10" emissiveIntensity={0.25} />
       </mesh>
-      {/* Back */}
-      <mesh position={[0, 0.25, -0.22]}>
-        <boxGeometry args={[0.6, 0.44, 0.06]} />
-        <meshStandardMaterial color="#161616" />
-      </mesh>
-      {/* Legs */}
-      {[[-0.25, -0.13, -0.18], [0.25, -0.13, -0.18], [-0.25, -0.13, 0.18], [0.25, -0.13, 0.18]].map(
-        ([x, y, z], i) => (
-          <mesh key={i} position={[x, y, z]}>
-            <boxGeometry args={[0.05, 0.26, 0.05]} />
-            <meshStandardMaterial color="#181818" />
+
+      {/* Stone ring */}
+      {Array.from({ length: 14 }, (_, i) => {
+        const a = (i / 14) * Math.PI * 2;
+        return (
+          <mesh
+            key={i}
+            position={[Math.cos(a) * 0.48, 0.08, Math.sin(a) * 0.48]}
+            rotation={[0, a, 0]}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[0.18, 0.16, 0.14]} />
+            <meshStandardMaterial color="#6f6258" roughness={0.95} />
           </mesh>
-        )
-      )}
+        );
+      })}
+
+      {/* Logs */}
+      <mesh position={[0, 0.08, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+        <cylinderGeometry args={[0.07, 0.08, 0.58, 10]} />
+        <meshStandardMaterial color="#4e3222" roughness={0.9} />
+      </mesh>
+      <mesh position={[0, 0.08, 0]} rotation={[0, -Math.PI / 4, 0]} castShadow>
+        <cylinderGeometry args={[0.07, 0.08, 0.58, 10]} />
+        <meshStandardMaterial color="#4e3222" roughness={0.9} />
+      </mesh>
+
+      <pointLight
+        ref={fireLightRef}
+        position={[0, 0.56, 0]}
+        intensity={2.3}
+        distance={4.6}
+        decay={2}
+        color="#ff9d52"
+      />
+
+      {/* Flame shells */}
+      <mesh ref={flameOuterRef} position={[0, 0.34, 0]} castShadow>
+        <coneGeometry args={[0.18, 0.46, 10]} />
+        <meshStandardMaterial
+          color="#ff8f2a"
+          emissive="#ff6b1a"
+          emissiveIntensity={1.45}
+          transparent
+          opacity={0.9}
+        />
+      </mesh>
+      <mesh ref={flameInnerRef} position={[0, 0.3, 0]} castShadow>
+        <coneGeometry args={[0.11, 0.3, 9]} />
+        <meshStandardMaterial color="#fff0b0" emissive="#ffbf56" emissiveIntensity={1.75} transparent opacity={0.96} />
+      </mesh>
+
+      {/* Ground glow */}
+      <mesh ref={glowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.021, 0]}>
+        <circleGeometry args={[0.96, 24]} />
+        <meshBasicMaterial color="#ff8d3a" transparent opacity={0.24} />
+      </mesh>
+      <mesh ref={coreGlowRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.022, 0]}>
+        <circleGeometry args={[0.46, 20]} />
+        <meshBasicMaterial color="#ffbf5a" transparent opacity={0.42} />
+      </mesh>
+
+      {/* Embers */}
+      {emberSeeds.map((_, i) => (
+        <mesh
+          key={i}
+          ref={(node) => {
+            emberRefs.current[i] = node;
+          }}
+          position={[0, 0.25, 0]}
+        >
+          <sphereGeometry args={[0.03, 6, 6]} />
+          <meshBasicMaterial color="#ffc777" transparent opacity={0.8} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -353,6 +490,10 @@ function ExitingCharacter({
     [exitingMember.slotIndex]
   );
   const startPos = waypoints[0];
+  const seatedRotation = useMemo(
+    () => getStationRotationY(exitingMember.slotIndex),
+    [exitingMember.slotIndex]
+  );
 
   // Compute total path length for constant-speed walking
   const { segLengths, totalLength } = useMemo(() => {
@@ -387,6 +528,7 @@ function ExitingCharacter({
       if (legLeftRef.current) legLeftRef.current.rotation.x = legAngle;
       if (legRightRef.current) legRightRef.current.rotation.x = legAngle;
       group.position.set(startPos.x, t * 0.15, startPos.z);
+      group.rotation.y = seatedRotation;
     } else {
       // Phase 2: Walk along waypoints at constant speed
       const walkT = (elapsed - STAND_END) / (TOTAL_EXIT_DURATION - STAND_END);
@@ -434,7 +576,7 @@ function ExitingCharacter({
   });
 
   return (
-    <group ref={groupRef} position={[startPos.x, 0, startPos.z]}>
+    <group ref={groupRef} position={[startPos.x, 0, startPos.z]} rotation={[0, seatedRotation, 0]}>
       <group scale={0.5}>
         <primitive object={cloned} />
       </group>
@@ -489,6 +631,10 @@ function EnteringCharacter({
     return [...stationToDoor].reverse();
   }, [enteringMember.slotIndex]);
   const seatedPos = route[route.length - 1];
+  const seatedRotation = useMemo(
+    () => getStationRotationY(enteringMember.slotIndex),
+    [enteringMember.slotIndex]
+  );
 
   const {
     toBowPath,
@@ -691,7 +837,7 @@ function EnteringCharacter({
 
     const sitT = easeInOutCubic((elapsed - SIT_START) / SIT_DURATION);
     group.position.set(seatedPos.x, 0.15 * (1 - sitT), seatedPos.z);
-    group.rotation.y = 0;
+    group.rotation.y = seatedRotation;
     resetUpperBodyPose();
     const legAngle = -Math.PI / 2 * sitT;
     if (legLeftRef.current) legLeftRef.current.rotation.x = legAngle;
@@ -707,7 +853,7 @@ function EnteringCharacter({
   );
 }
 
-/* ── Station (desk + chair + character) ── */
+/* ── Station (bench + character) ── */
 function Station({
   member,
   index,
@@ -720,13 +866,14 @@ function Station({
   position: [number, number];
 }) {
   const modelPath = CHARACTER_MODELS[index % CHARACTER_MODELS.length];
+  const rotationY = getStationRotationY(index);
 
   return (
-    <group position={[position[0], 0, position[1]]}>
-      <Chair />
+    <group position={[position[0], 0, position[1]]} rotation={[0, rotationY, 0]}>
+      <Bench />
       {member && (
         <>
-          <group position={[0, -0.15, -0.45]}>
+          <group position={[0, -0.12, 0]}>
             <CharacterModel modelPath={modelPath} />
           </group>
           <NameLabel
@@ -735,7 +882,6 @@ function Station({
           />
         </>
       )}
-      <Desk hasMember={!!member} isStudying={true} />
     </group>
   );
 }
@@ -1017,6 +1163,7 @@ export function IsometricRoom({ members, currentUserId, maxSlots }: IsometricRoo
 
         {/* Scene */}
         <Suspense fallback={null}>
+          <Campfire />
           {stableSlots.map(({ idx, member, position }) => {
             const hiddenDuringEnter =
               member !== null && enteringUserIds.has(member.user_id);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useLobby } from '@/hooks/use-lobby';
@@ -15,7 +15,6 @@ export default function LobbyPage() {
   const router = useRouter();
   const { user, loading: authLoading, signOut } = useAuth();
   const [profile, setProfile] = useState<User | null>(null);
-  const [ready, setReady] = useState(false);
   const supabase = getSupabaseBrowserClient();
 
   const displayName = profile?.display_name || user?.user_metadata?.display_name || 'ユーザー';
@@ -31,6 +30,7 @@ export default function LobbyPage() {
     incomingChallenge,
     outgoingChallengeTo,
     matchStarted,
+    isAccepting,
     sendChallenge,
     acceptChallenge,
     declineChallenge,
@@ -46,23 +46,24 @@ export default function LobbyPage() {
     userId: user?.id || '',
   });
 
-  // Fetch profile
-  const fetchProfile = useCallback(async () => {
-    if (!user) return;
-    const { data } = await supabase.from('users').select('*').eq('id', user.id).single();
-    if (data) setProfile(data as User);
-  }, [user, supabase]);
-
   useEffect(() => {
     if (!authLoading && !user) {
       router.push('/login');
       return;
     }
-    if (user) {
-      fetchProfile();
-      setReady(true);
-    }
-  }, [user, authLoading, router, fetchProfile]);
+    if (!user) return;
+
+    let cancelled = false;
+    supabase.from('users').select('*').eq('id', user.id).single().then(({ data }) => {
+      if (!cancelled && data) {
+        setProfile(data as User);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, authLoading, router, supabase]);
 
   // Navigate to match when it starts
   useEffect(() => {
@@ -79,7 +80,7 @@ export default function LobbyPage() {
     router.push('/');
   };
 
-  if (!ready || authLoading) {
+  if (authLoading || !user) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-amber/30 border-t-amber rounded-full animate-spin" />
@@ -164,11 +165,11 @@ export default function LobbyPage() {
                 <span className="text-amber font-medium">{incomingChallenge.fromName}</span> が勝負を挑んでいます
               </p>
               <div className="flex gap-3">
-                <button onClick={declineChallenge} className="btn-ghost flex-1">
+                <button onClick={declineChallenge} className="btn-ghost flex-1" disabled={isAccepting}>
                   断る
                 </button>
-                <button onClick={acceptChallenge} className="btn-primary flex-1">
-                  受ける
+                <button onClick={acceptChallenge} className="btn-primary flex-1" disabled={isAccepting}>
+                  {isAccepting ? '開始中...' : '受ける'}
                 </button>
               </div>
             </div>

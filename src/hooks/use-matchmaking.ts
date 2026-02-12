@@ -5,11 +5,15 @@ import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { CHALLENGE_EXPIRE_MS } from '@/lib/constants';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
+const CHALLENGE_RETRY_INTERVAL_MS = 1_200;
+const CHALLENGE_RETRY_LIMIT = Math.max(1, Math.floor(CHALLENGE_EXPIRE_MS / CHALLENGE_RETRY_INTERVAL_MS));
+
 interface ChallengePayload {
-  type: 'challenge' | 'accept' | 'decline' | 'cancel' | 'match_start';
+  type: 'challenge' | 'challenge_received' | 'accept' | 'decline' | 'cancel' | 'match_start';
   from: string;
   fromName: string;
   to: string;
+  challengeId?: string;
   matchId?: string;
 }
 
@@ -19,22 +23,81 @@ interface UseMatchmakingProps {
 }
 
 interface PendingChallenge {
+  challengeId: string;
   fromId: string;
   fromName: string;
   receivedAt: number;
 }
 
+interface OutgoingChallenge {
+  challengeId: string;
+  to: string;
+  acknowledged: boolean;
+}
+
 export function useMatchmaking({ userId, displayName }: UseMatchmakingProps) {
   const [incomingChallenge, setIncomingChallenge] = useState<PendingChallenge | null>(null);
-  const [outgoingChallengeTo, setOutgoingChallengeTo] = useState<string | null>(null);
+  const [outgoingChallenge, setOutgoingChallenge] = useState<OutgoingChallenge | null>(null);
   const [matchStarted, setMatchStarted] = useState<string | null>(null); // matchId
+  const [isAccepting, setIsAccepting] = useState(false);
+
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const incomingChallengeRef = useRef<PendingChallenge | null>(null);
+  const outgoingChallengeRef = useRef<OutgoingChallenge | null>(null);
   const supabase = getSupabaseBrowserClient();
   const userIdRef = useRef(userId);
   const displayNameRef = useRef(displayName);
 
   useEffect(() => { userIdRef.current = userId; }, [userId]);
   useEffect(() => { displayNameRef.current = displayName; }, [displayName]);
+  useEffect(() => { incomingChallengeRef.current = incomingChallenge; }, [incomingChallenge]);
+  useEffect(() => { outgoingChallengeRef.current = outgoingChallenge; }, [outgoingChallenge]);
+
+  const clearRetryTimer = useCallback(() => {
+    if (!retryTimerRef.current) return;
+    clearInterval(retryTimerRef.current);
+    retryTimerRef.current = null;
+  }, []);
+
+  const sendEvent = useCallback(async (payload: ChallengePayload) => {
+    const channel = channelRef.current;
+    if (!channel) return false;
+
+    const status = await channel.send({
+      type: 'broadcast',
+      event: 'matchmaking',
+      payload,
+    });
+
+    if (status !== 'ok') {
+      console.warn('Matchmaking send failed:', status, payload.type);
+      return false;
+    }
+
+    return true;
+  }, []);
+
+  const scheduleRetry = useCallback((payload: ChallengePayload) => {
+    clearRetryTimer();
+    let attempts = 0;
+
+    retryTimerRef.current = setInterval(() => {
+      const current = outgoingChallengeRef.current;
+      if (!current || current.challengeId !== payload.challengeId) {
+        clearRetryTimer();
+        return;
+      }
+
+      if (current.acknowledged || attempts >= CHALLENGE_RETRY_LIMIT) {
+        clearRetryTimer();
+        return;
+      }
+
+      attempts += 1;
+      void sendEvent(payload);
+    }, CHALLENGE_RETRY_INTERVAL_MS);
+  }, [clearRetryTimer, sendEvent]);
 
   // Auto-expire incoming challenges
   useEffect(() => {
@@ -50,10 +113,13 @@ export function useMatchmaking({ userId, displayName }: UseMatchmakingProps) {
 
   // Auto-expire outgoing challenge
   useEffect(() => {
-    if (!outgoingChallengeTo) return;
-    const timer = setTimeout(() => setOutgoingChallengeTo(null), CHALLENGE_EXPIRE_MS);
+    if (!outgoingChallenge) return;
+    const timer = setTimeout(() => {
+      clearRetryTimer();
+      setOutgoingChallenge(null);
+    }, CHALLENGE_EXPIRE_MS);
     return () => clearTimeout(timer);
-  }, [outgoingChallengeTo]);
+  }, [outgoingChallenge, clearRetryTimer]);
 
   useEffect(() => {
     if (!userId) return;
@@ -67,33 +133,75 @@ export function useMatchmaking({ userId, displayName }: UseMatchmakingProps) {
 
         switch (p.type) {
           case 'challenge':
-            if (p.to === userIdRef.current) {
-              setIncomingChallenge({
-                fromId: p.from,
-                fromName: p.fromName,
-                receivedAt: Date.now(),
+            if (p.to !== userIdRef.current || !p.challengeId) break;
+            {
+              const challengeId = p.challengeId;
+
+              setIncomingChallenge((prev) => {
+                const now = Date.now();
+                if (prev?.challengeId === challengeId) {
+                  return { ...prev, fromName: p.fromName, receivedAt: now };
+                }
+                return {
+                  challengeId,
+                  fromId: p.from,
+                  fromName: p.fromName,
+                  receivedAt: now,
+                };
+              });
+
+              void sendEvent({
+                type: 'challenge_received',
+                from: userIdRef.current,
+                fromName: displayNameRef.current,
+                to: p.from,
+                challengeId,
               });
             }
             break;
+          case 'challenge_received':
+            if (p.to === userIdRef.current && p.challengeId) {
+              setOutgoingChallenge((prev) => {
+                if (!prev || prev.challengeId !== p.challengeId) return prev;
+                return { ...prev, acknowledged: true };
+              });
+              clearRetryTimer();
+            }
+            break;
           case 'accept':
-            if (p.to === userIdRef.current) {
-              // The challenged player accepted -> now we create the match
-              // The challenger (us) should call the API to start the match
-              setOutgoingChallengeTo(null);
+            if (
+              p.to === userIdRef.current &&
+              p.challengeId &&
+              outgoingChallengeRef.current?.challengeId === p.challengeId
+            ) {
+              clearRetryTimer();
+              setOutgoingChallenge(null);
             }
             break;
           case 'decline':
-            if (p.to === userIdRef.current) {
-              setOutgoingChallengeTo(null);
+            if (
+              p.to === userIdRef.current &&
+              p.challengeId &&
+              outgoingChallengeRef.current?.challengeId === p.challengeId
+            ) {
+              clearRetryTimer();
+              setOutgoingChallenge(null);
             }
             break;
           case 'cancel':
-            if (p.to === userIdRef.current) {
+            if (
+              p.to === userIdRef.current &&
+              p.challengeId &&
+              incomingChallengeRef.current?.challengeId === p.challengeId
+            ) {
               setIncomingChallenge(null);
+              setIsAccepting(false);
             }
             break;
           case 'match_start':
             if (p.to === userIdRef.current && p.matchId) {
+              clearRetryTimer();
+              setOutgoingChallenge(null);
               setMatchStarted(p.matchId);
               setIncomingChallenge(null);
             }
@@ -103,44 +211,57 @@ export function useMatchmaking({ userId, displayName }: UseMatchmakingProps) {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           channelRef.current = channel;
+          return;
+        }
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          channelRef.current = null;
         }
       });
 
     return () => {
+      clearRetryTimer();
       channel.unsubscribe();
       channelRef.current = null;
     };
-  }, [userId, supabase]);
+  }, [userId, supabase, clearRetryTimer, sendEvent]);
 
   const sendChallenge = useCallback((targetUserId: string) => {
     if (!channelRef.current) return;
-    setOutgoingChallengeTo(targetUserId);
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'matchmaking',
-      payload: {
-        type: 'challenge',
-        from: userIdRef.current,
-        fromName: displayNameRef.current,
-        to: targetUserId,
-      } satisfies ChallengePayload,
+    const challengeId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const payload = {
+      type: 'challenge',
+      from: userIdRef.current,
+      fromName: displayNameRef.current,
+      to: targetUserId,
+      challengeId,
+    } satisfies ChallengePayload;
+
+    setOutgoingChallenge({
+      challengeId,
+      to: targetUserId,
+      acknowledged: false,
     });
-  }, []);
+
+    void sendEvent(payload);
+    scheduleRetry(payload);
+  }, [scheduleRetry, sendEvent]);
 
   const acceptChallenge = useCallback(async () => {
-    if (!channelRef.current || !incomingChallenge) return;
-    const challengerId = incomingChallenge.fromId;
+    const challenge = incomingChallengeRef.current;
+    if (!channelRef.current || !challenge || isAccepting) return;
+    const challengerId = challenge.fromId;
+    const challengeId = challenge.challengeId;
+    setIsAccepting(true);
 
     // Notify challenger that we accepted
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'matchmaking',
-      payload: {
-        type: 'accept',
-        from: userIdRef.current,
-        fromName: displayNameRef.current,
-        to: challengerId,
-      } satisfies ChallengePayload,
+    await sendEvent({
+      type: 'accept',
+      from: userIdRef.current,
+      fromName: displayNameRef.current,
+      to: challengerId,
+      challengeId,
     });
 
     // Create match via API
@@ -159,63 +280,68 @@ export function useMatchmaking({ userId, displayName }: UseMatchmakingProps) {
       const matchId = data.match.id;
 
       // Notify challenger of match start
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'matchmaking',
-        payload: {
-          type: 'match_start',
-          from: userIdRef.current,
-          fromName: displayNameRef.current,
-          to: challengerId,
-          matchId,
-        } satisfies ChallengePayload,
+      await sendEvent({
+        type: 'match_start',
+        from: userIdRef.current,
+        fromName: displayNameRef.current,
+        to: challengerId,
+        challengeId,
+        matchId,
       });
 
       setIncomingChallenge(null);
       setMatchStarted(matchId);
     } catch (err) {
       console.error('Failed to start match:', err);
+    } finally {
+      setIsAccepting(false);
     }
-  }, [incomingChallenge]);
+  }, [isAccepting, sendEvent]);
 
   const declineChallenge = useCallback(() => {
-    if (!channelRef.current || !incomingChallenge) return;
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'matchmaking',
-      payload: {
-        type: 'decline',
-        from: userIdRef.current,
-        fromName: displayNameRef.current,
-        to: incomingChallenge.fromId,
-      } satisfies ChallengePayload,
+    const challenge = incomingChallengeRef.current;
+    if (!channelRef.current || !challenge) return;
+    void sendEvent({
+      type: 'decline',
+      from: userIdRef.current,
+      fromName: displayNameRef.current,
+      to: challenge.fromId,
+      challengeId: challenge.challengeId,
     });
     setIncomingChallenge(null);
-  }, [incomingChallenge]);
+    setIsAccepting(false);
+  }, [sendEvent]);
 
   const cancelChallenge = useCallback(() => {
-    if (!channelRef.current || !outgoingChallengeTo) return;
-    channelRef.current.send({
-      type: 'broadcast',
-      event: 'matchmaking',
-      payload: {
-        type: 'cancel',
-        from: userIdRef.current,
-        fromName: displayNameRef.current,
-        to: outgoingChallengeTo,
-      } satisfies ChallengePayload,
+    const current = outgoingChallengeRef.current;
+    if (!channelRef.current || !current) return;
+
+    clearRetryTimer();
+    void sendEvent({
+      type: 'cancel',
+      from: userIdRef.current,
+      fromName: displayNameRef.current,
+      to: current.to,
+      challengeId: current.challengeId,
     });
-    setOutgoingChallengeTo(null);
-  }, [outgoingChallengeTo]);
+    setOutgoingChallenge(null);
+  }, [clearRetryTimer, sendEvent]);
 
   const clearMatchStarted = useCallback(() => {
     setMatchStarted(null);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      clearRetryTimer();
+    };
+  }, [clearRetryTimer]);
+
   return {
     incomingChallenge,
-    outgoingChallengeTo,
+    outgoingChallengeTo: outgoingChallenge?.to ?? null,
     matchStarted,
+    isAccepting,
     sendChallenge,
     acceptChallenge,
     declineChallenge,

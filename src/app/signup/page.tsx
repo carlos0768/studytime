@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type FormEvent, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
@@ -15,9 +15,15 @@ export default function SignupPage() {
   const [otp, setOtp] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { sendOtp, verifyOtp, updateDisplayName } = useAuth();
+  const { user, loading: authLoading, sendOtp, verifyOtp, updateDisplayName } = useAuth();
   const router = useRouter();
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace('/lobby');
+    }
+  }, [authLoading, user, router]);
 
   // Step 1: 表示名 + メール → OTP送信
   const handleSendOtp = async (e: FormEvent) => {
@@ -111,6 +117,14 @@ export default function SignupPage() {
       }
     }
   }, [otpLength, submitOtp]);
+
+  if (authLoading || user) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-amber/30 border-t-amber rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh flex items-center justify-center px-6">

@@ -22,6 +22,7 @@ interface HeartbeatPayload {
 export function useMatch({ matchId, userId }: UseMatchProps) {
   const [status, setStatus] = useState<MatchStatus>('active');
   const [result, setResult] = useState<MatchResult | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const opponentTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -30,6 +31,15 @@ export function useMatch({ matchId, userId }: UseMatchProps) {
   const userIdRef = useRef(userId);
 
   useEffect(() => { userIdRef.current = userId; }, [userId]);
+
+  // Elapsed time counter — ticks every second while match is active
+  useEffect(() => {
+    if (status !== 'active') return;
+    const timer = setInterval(() => {
+      setElapsedSeconds((s) => s + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [status]);
 
   const endMatch = useCallback(async (loserId: string, reason: 'giveup' | 'tab_hidden' | 'disconnect') => {
     if (endedRef.current) return;
@@ -208,6 +218,7 @@ export function useMatch({ matchId, userId }: UseMatchProps) {
   return {
     status,
     result,
+    elapsedSeconds,
     giveUp,
   };
 }

@@ -18,10 +18,20 @@ export function useAuth() {
     });
 
     // 初期セッション取得
-    supabase.auth.getSession().then(({ data }: { data: { session: { user: AuthUser | null } | null } }) => {
-      setUser(data.session?.user ?? null);
-      setLoading(false);
-    });
+    supabase.auth.getSession().then(
+      async ({ data }: { data: { session: { user: AuthUser | null } | null } }) => {
+        if (data.session?.user) {
+          setUser(data.session.user);
+          setLoading(false);
+          return;
+        }
+
+        // getSession の user が空のケースでも、トークンが有効なら復元できることがある
+        const { data: userData } = await supabase.auth.getUser();
+        setUser(userData.user ?? null);
+        setLoading(false);
+      }
+    );
 
     return () => subscription.unsubscribe();
   }, [supabase]);

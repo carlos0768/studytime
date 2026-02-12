@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useMatch } from '@/hooks/use-match';
+import { SaunaClock } from '@/components/sauna-clock';
 
 export default function MatchPage() {
   const params = useParams();
@@ -13,7 +14,7 @@ export default function MatchPage() {
   const [ready, setReady] = useState(false);
   const [confirmGiveup, setConfirmGiveup] = useState(false);
 
-  const { status, result, giveUp } = useMatch({
+  const { status, result, elapsedSeconds, giveUp } = useMatch({
     matchId,
     userId: user?.id || '',
   });
@@ -87,13 +88,17 @@ export default function MatchPage() {
 
   return (
     <div className="h-dvh flex flex-col items-center justify-center bg-black select-none">
-      {/* Pure black. Only "対戦中" and giveup button. */}
       <p
-        className="text-text-muted text-lg tracking-widest mb-16 opacity-40"
+        className="text-text-muted text-lg tracking-widest mb-8 opacity-40"
         style={{ fontFamily: 'var(--font-display)' }}
       >
         対戦中
       </p>
+
+      {/* Sauna clock */}
+      <div className="mb-10">
+        <SaunaClock elapsedSeconds={elapsedSeconds} />
+      </div>
 
       {/* Giveup button */}
       <div className="flex flex-col items-center gap-3">
