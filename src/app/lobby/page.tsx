@@ -8,24 +8,9 @@ import { useMatchmaking } from '@/hooks/use-matchmaking';
 import { useVoiceChat } from '@/hooks/use-voice-chat';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import { ELO_DEFAULT_RATING, MAX_LOBBY_MEMBERS } from '@/lib/constants';
+import { formatStudyTimeWithSeconds, getLocalDateKey, resolveTodayBaseline } from '@/lib/study-time';
 import { IsometricRoom } from '@/components/isometric-room';
 import type { ActiveMatchRoom, User } from '@/types';
-
-function formatStudyTimeWithSeconds(totalSeconds: number): string {
-  const safeSeconds = Math.max(0, totalSeconds);
-  const h = Math.floor(safeSeconds / 3600);
-  const m = Math.floor((safeSeconds % 3600) / 60);
-  const s = safeSeconds % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function getLocalDateKey(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
 export default function LobbyPage() {
   const router = useRouter();
@@ -33,11 +18,10 @@ export default function LobbyPage() {
   const [profile, setProfile] = useState<User | null>(null);
   const [activeRooms, setActiveRooms] = useState<ActiveMatchRoom[]>([]);
   const [recordedStudySeconds, setRecordedStudySeconds] = useState(0);
-  const [unsyncedStudySeconds, setUnsyncedStudySeconds] = useState(0);
+  const [currentSessionSeconds, setCurrentSessionSeconds] = useState(0);
   const [todayBaselineSeconds, setTodayBaselineSeconds] = useState<number | null>(null);
   const supabase = getSupabaseBrowserClient();
-  const unsyncedStudyRef = useRef(0);
-  const savingStudyRef = useRef(false);
+  const committingStudyRef = useRef(false);
 
   const displayName = profile?.display_name || user?.user_metadata?.display_name || 'ユーザー';
   const eloRating = profile?.elo_rating ?? ELO_DEFAULT_RATING;
@@ -89,103 +73,66 @@ export default function LobbyPage() {
     };
   }, [user, authLoading, router, supabase]);
 
-  const flushStudyTime = useCallback(
-    async (force: boolean) => {
-      if (!user || savingStudyRef.current) return;
+  const commitStudySession = useCallback(async () => {
+    if (!user || committingStudyRef.current) return;
+    if (currentSessionSeconds <= 0) return;
 
-      const pendingSeconds = unsyncedStudyRef.current;
-      if (pendingSeconds <= 0) return;
-      if (!force && pendingSeconds < 20) return;
-
-      savingStudyRef.current = true;
-      try {
-        const res = await fetch('/api/study/time', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seconds: pendingSeconds }),
-          keepalive: force,
-        });
-        if (!res.ok) return;
-
-        const data = await res.json();
-        if (typeof data.total_study_seconds === 'number') {
-          setRecordedStudySeconds(data.total_study_seconds);
-        } else {
-          setRecordedStudySeconds((prev) => prev + pendingSeconds);
-        }
-        unsyncedStudyRef.current = Math.max(0, unsyncedStudyRef.current - pendingSeconds);
-        setUnsyncedStudySeconds((prev) => Math.max(0, prev - pendingSeconds));
-      } catch {
-        // ignore transient network failures; periodic flush will retry
-      } finally {
-        savingStudyRef.current = false;
+    committingStudyRef.current = true;
+    try {
+      const res = await fetch('/api/study/time', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seconds: currentSessionSeconds }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.total_study_seconds === 'number') {
+        setRecordedStudySeconds(data.total_study_seconds);
       }
-    },
-    [user]
-  );
+      setCurrentSessionSeconds(0);
+    } catch {
+      // Ignore transient errors; user can continue and session can be retried on next action.
+    } finally {
+      committingStudyRef.current = false;
+    }
+  }, [user, currentSessionSeconds]);
+
+  useEffect(() => {
+    if (!user) return;
+    const tickTimer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      setCurrentSessionSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(tickTimer);
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
 
-    unsyncedStudyRef.current = 0;
-    setUnsyncedStudySeconds(0);
+    const resetSessionTimer = () => {
+      setCurrentSessionSeconds(0);
+    };
 
-    const tickTimer = setInterval(() => {
-      unsyncedStudyRef.current += 1;
-      setUnsyncedStudySeconds((prev) => prev + 1);
-    }, 1000);
-
-    const flushTimer = setInterval(() => {
-      void flushStudyTime(false);
-    }, 30_000);
-
-    const handlePageHide = () => {
-      const pending = unsyncedStudyRef.current;
-      if (pending <= 0) return;
-      if (!navigator.sendBeacon) return;
-
-      const payload = JSON.stringify({ seconds: pending });
-      const sent = navigator.sendBeacon(
-        '/api/study/time',
-        new Blob([payload], { type: 'application/json' })
-      );
-      if (sent) {
-        unsyncedStudyRef.current = 0;
-        setUnsyncedStudySeconds(0);
-        setRecordedStudySeconds((prev) => prev + pending);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        resetSessionTimer();
       }
     };
 
-    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', resetSessionTimer);
+
     return () => {
-      window.removeEventListener('pagehide', handlePageHide);
-      clearInterval(tickTimer);
-      clearInterval(flushTimer);
-      void flushStudyTime(true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', resetSessionTimer);
     };
-  }, [user, flushStudyTime]);
+  }, [user]);
 
   const todayDateKey = getLocalDateKey();
 
   useEffect(() => {
     if (!user) return;
-
-    const storageKey = `study_baseline:${user.id}:${todayDateKey}`;
-    try {
-      const raw = localStorage.getItem(storageKey);
-      const parsed = raw ? Number(raw) : NaN;
-      const validParsed = Number.isFinite(parsed) ? Math.floor(parsed) : NaN;
-
-      if (!Number.isFinite(validParsed) || validParsed > recordedStudySeconds) {
-        localStorage.setItem(storageKey, String(recordedStudySeconds));
-        setTodayBaselineSeconds(recordedStudySeconds);
-        return;
-      }
-
-      setTodayBaselineSeconds(validParsed);
-    } catch {
-      setTodayBaselineSeconds(recordedStudySeconds);
-    }
+    setTodayBaselineSeconds(resolveTodayBaseline(user.id, todayDateKey, recordedStudySeconds));
   }, [user, todayDateKey, recordedStudySeconds]);
 
   useEffect(() => {
@@ -225,16 +172,16 @@ export default function LobbyPage() {
   useEffect(() => {
     if (matchStarted) {
       void (async () => {
-        await flushStudyTime(true);
+        await commitStudySession();
         clearMatchStarted();
         await leaveLobby();
         router.push(`/match/${matchStarted}`);
       })();
     }
-  }, [matchStarted, clearMatchStarted, leaveLobby, router, flushStudyTime]);
+  }, [matchStarted, clearMatchStarted, leaveLobby, router, commitStudySession]);
 
   const handleSignOut = async () => {
-    await flushStudyTime(true);
+    await commitStudySession();
     await leaveLobby();
     await signOut();
     router.push('/');
@@ -270,9 +217,14 @@ export default function LobbyPage() {
   });
 
   const handleStartSingle = async () => {
-    await flushStudyTime(true);
+    await commitStudySession();
     await leaveLobby();
     router.push('/single');
+  };
+
+  const handleOpenStats = async () => {
+    await commitStudySession();
+    router.push('/stats');
   };
 
   if (authLoading || !user) {
@@ -283,7 +235,7 @@ export default function LobbyPage() {
     );
   }
 
-  const totalStudySeconds = recordedStudySeconds + unsyncedStudySeconds;
+  const totalStudySeconds = recordedStudySeconds + currentSessionSeconds;
   const todayStudySeconds = Math.max(
     0,
     totalStudySeconds - (todayBaselineSeconds ?? recordedStudySeconds)
@@ -321,7 +273,7 @@ export default function LobbyPage() {
             シングル
           </button>
           <button
-            onClick={() => router.push('/stats')}
+            onClick={handleOpenStats}
             className="btn-ghost text-xs"
             style={{ padding: '6px 14px', fontSize: '0.75rem' }}
           >
