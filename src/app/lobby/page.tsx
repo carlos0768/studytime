@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useLobby } from '@/hooks/use-lobby';
@@ -113,6 +113,40 @@ export default function LobbyPage() {
     await signOut();
     router.push('/');
   };
+  const currentUserId = user?.id || '';
+
+  const sortedMembers = useMemo(() => {
+    return [...members].sort((a, b) => {
+      const aTs = Date.parse(a.joined_at);
+      const bTs = Date.parse(b.joined_at);
+      const safeATs = Number.isNaN(aTs) ? 0 : aTs;
+      const safeBTs = Number.isNaN(bTs) ? 0 : bTs;
+      if (safeATs !== safeBTs) return safeATs - safeBTs;
+      return a.user_id.localeCompare(b.user_id);
+    });
+  }, [members]);
+
+  const lobbyRoomCount = Math.max(1, Math.ceil(sortedMembers.length / MAX_LOBBY_MEMBERS));
+  const myMemberIndex = sortedMembers.findIndex((m) => m.user_id === currentUserId);
+  const currentLobbyRoomIndex = myMemberIndex >= 0
+    ? Math.floor(myMemberIndex / MAX_LOBBY_MEMBERS)
+    : 0;
+  const roomStart = currentLobbyRoomIndex * MAX_LOBBY_MEMBERS;
+  const currentRoomMembers = sortedMembers.slice(roomStart, roomStart + MAX_LOBBY_MEMBERS);
+
+  // Others in same lobby room (excluding self)
+  const otherMembers = currentRoomMembers.filter((m) => m.user_id !== currentUserId);
+
+  // Member slots for isometric room (current room only)
+  const memberSlots = Array.from({ length: MAX_LOBBY_MEMBERS }, (_, i) => {
+    const m = currentRoomMembers[i];
+    return m ? { user_id: m.user_id, display_name: m.display_name, elo_rating: m.elo_rating } : null;
+  });
+
+  const handleStartSingle = async () => {
+    await leaveLobby();
+    router.push('/single');
+  };
 
   if (authLoading || !user) {
     return (
@@ -121,15 +155,6 @@ export default function LobbyPage() {
       </div>
     );
   }
-
-  // Others in lobby (excluding self)
-  const otherMembers = members.filter(m => m.user_id !== user?.id);
-
-  // Member slots for isometric room
-  const memberSlots = Array.from({ length: MAX_LOBBY_MEMBERS }, (_, i) => {
-    const m = members[i];
-    return m ? { user_id: m.user_id, display_name: m.display_name, elo_rating: m.elo_rating } : null;
-  });
 
   return (
     <div className="h-dvh flex flex-col overflow-hidden animate-fade-in">
@@ -154,6 +179,14 @@ export default function LobbyPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleStartSingle}
+            className="btn-ghost text-xs"
+            style={{ padding: '6px 14px', fontSize: '0.75rem' }}
+            disabled={!!outgoingChallengeTo || !!incomingChallenge}
+          >
+            シングル
+          </button>
           <button
             onClick={() => router.push('/stats')}
             className="btn-ghost text-xs"
@@ -234,7 +267,14 @@ export default function LobbyPage() {
           {/* Online Members */}
           {otherMembers.length > 0 ? (
             <div className="mb-3">
-              <p className="text-text-muted text-xs mb-2">ロビーにいるプレイヤー</p>
+              <p className="text-text-muted text-xs mb-1">
+                ロビー {currentLobbyRoomIndex + 1}/{lobbyRoomCount} のプレイヤー
+              </p>
+              {lobbyRoomCount > 1 && (
+                <p className="text-text-muted text-[10px] mb-2">
+                  全体 {sortedMembers.length}人（1ルーム最大 {MAX_LOBBY_MEMBERS}人）
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {otherMembers.map(m => (
                   <button
@@ -260,7 +300,7 @@ export default function LobbyPage() {
             </div>
           ) : (
             <p className="text-text-muted text-xs mb-3 text-center">
-              対戦相手を待っています...
+              ロビー {currentLobbyRoomIndex + 1}/{lobbyRoomCount} で対戦相手を待っています...
             </p>
           )}
 

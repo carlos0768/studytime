@@ -30,10 +30,14 @@ export function useLobby({ userId, displayName, eloRating }: UseLobbyProps) {
   const userIdRef = useRef(userId);
   const displayNameRef = useRef(displayName);
   const eloRatingRef = useRef(eloRating);
+  const sessionJoinedAtRef = useRef(new Date().toISOString());
 
   useEffect(() => { userIdRef.current = userId; }, [userId]);
   useEffect(() => { displayNameRef.current = displayName; }, [displayName]);
   useEffect(() => { eloRatingRef.current = eloRating; }, [eloRating]);
+  useEffect(() => {
+    sessionJoinedAtRef.current = new Date().toISOString();
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -62,7 +66,7 @@ export function useLobby({ userId, displayName, eloRating }: UseLobbyProps) {
           user_id: userIdRef.current,
           display_name: displayNameRef.current,
           elo_rating: eloRatingRef.current,
-          joined_at: new Date().toISOString(),
+          joined_at: sessionJoinedAtRef.current,
         });
       } catch (err) {
         console.warn('Lobby presence track failed:', err);
@@ -88,7 +92,14 @@ export function useLobby({ userId, displayName, eloRating }: UseLobbyProps) {
           joined_at: latest.joined_at || new Date().toISOString(),
         });
       }
-      list.sort((a, b) => Date.parse(a.joined_at) - Date.parse(b.joined_at));
+      list.sort((a, b) => {
+        const aTs = Date.parse(a.joined_at);
+        const bTs = Date.parse(b.joined_at);
+        const safeATs = Number.isNaN(aTs) ? 0 : aTs;
+        const safeBTs = Number.isNaN(bTs) ? 0 : bTs;
+        if (safeATs !== safeBTs) return safeATs - safeBTs;
+        return a.user_id.localeCompare(b.user_id);
+      });
       setMembers(list);
     };
 

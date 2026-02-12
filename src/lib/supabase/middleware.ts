@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PROTECTED_PATHS = ['/lobby', '/match', '/result', '/stats'];
+const PROTECTED_PATHS = ['/lobby', '/match', '/result', '/stats', '/single'];
 const AUTH_PATHS = ['/login', '/signup'];
 const AUTH_RETRY_ATTEMPTS = 3;
 
