@@ -59,7 +59,7 @@ export default function LandingPage() {
 
       {/* Footer hint */}
       <div className="absolute bottom-8 text-text-muted text-xs tracking-wide opacity-0 animate-fade-in stagger-5">
-        覚悟を決めろ。
+        サウナ
       </div>
     </div>
   );
