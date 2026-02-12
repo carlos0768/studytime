@@ -3,6 +3,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 const PROTECTED_PATHS = ['/lobby', '/match', '/result', '/stats'];
 const AUTH_PATHS = ['/login', '/signup'];
+const AUTH_RETRY_ATTEMPTS = 3;
+
+type ErrorLike = {
+  message?: string | null;
+  details?: string | null;
+  hint?: string | null;
+};
 
 function isValidUrl(str: string | undefined): str is string {
   if (!str) return false;
@@ -12,6 +19,40 @@ function isValidUrl(str: string | undefined): str is string {
   } catch {
     return false;
   }
+}
+
+function toErrorLike(err: unknown): ErrorLike {
+  if (err && typeof err === 'object') {
+    const maybe = err as Record<string, unknown>;
+    return {
+      message: typeof maybe.message === 'string' ? maybe.message : null,
+      details: typeof maybe.details === 'string' ? maybe.details : null,
+      hint: typeof maybe.hint === 'string' ? maybe.hint : null,
+    };
+  }
+  if (typeof err === 'string') {
+    return { message: err, details: null, hint: null };
+  }
+  return { message: null, details: null, hint: null };
+}
+
+function isTransientAuthError(err: unknown): boolean {
+  const e = toErrorLike(err);
+  const text = `${e.message || ''} ${e.details || ''} ${e.hint || ''}`.toLowerCase();
+  return (
+    text.includes('fetch failed') ||
+    text.includes('timeout') ||
+    text.includes('timed out') ||
+    text.includes('cloudflare') ||
+    text.includes('internal server error') ||
+    text.includes('gateway') ||
+    text.includes('connection') ||
+    text.includes('network')
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function updateSession(request: NextRequest) {
@@ -50,9 +91,49 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: { id: string } | null = null;
+
+  for (let i = 0; i < AUTH_RETRY_ATTEMPTS; i += 1) {
+    try {
+      const {
+        data: { user: fetchedUser },
+        error,
+      } = await supabase.auth.getUser();
+
+      if (!error) {
+        user = fetchedUser;
+        break;
+      }
+
+      const retryable = isTransientAuthError(error);
+      if (retryable && i < AUTH_RETRY_ATTEMPTS - 1) {
+        await delay(80 * (i + 1));
+        continue;
+      }
+      if (retryable) {
+        console.warn('Transient auth failure in middleware, skip redirect logic for this request:', error);
+        return supabaseResponse;
+      }
+
+      // Non-transient auth errors are treated as unauthenticated.
+      user = null;
+      break;
+    } catch (err) {
+      const retryable = isTransientAuthError(err);
+      if (retryable && i < AUTH_RETRY_ATTEMPTS - 1) {
+        await delay(80 * (i + 1));
+        continue;
+      }
+      if (retryable) {
+        console.warn('Transient auth exception in middleware, skip redirect logic for this request:', err);
+        return supabaseResponse;
+      }
+
+      console.error('Auth check failed in middleware:', err);
+      user = null;
+      break;
+    }
+  }
 
   const { pathname } = request.nextUrl;
 

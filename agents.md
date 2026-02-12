@@ -115,5 +115,5 @@ Required in `.env.local`:
 - **Heartbeat via Broadcast**: 5s interval, 15s timeout for opponent disconnect detection
 - **OTP length is dynamic**: Server returns `otpLength` and client renders that many input boxes
 
-ルール
-・これからは、エラー,バグ報告を受け取ったらdoc/error.mdに全て書き込むようにしてください。そして、修正が終わったらそのエラーを解決済みにし、起こった原因と解決法を書き込むようにしてください
+#ルール
+・エラー報告を受け取ったらdoc/error.mdに全て書き込むようにしてください。そして、修正が終わったらそのエラーを解決済みにし、起こった原因と解決法を書き込むようにしてください

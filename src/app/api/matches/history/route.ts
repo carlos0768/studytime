@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { getSupabaseServerClient } from '@/lib/supabase/server';
 
@@ -6,14 +7,14 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
 
-    const supabase = await getSupabaseServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const authClient = await getSupabaseServerClient();
+    const { data: { user } } = await authClient.auth.getUser();
 
     if (!user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
-    const { data: matches, error } = await supabase
+    const { data: matches, error } = await authClient
       .from('matches')
       .select('*')
       .or(`player1_id.eq.${user.id},player2_id.eq.${user.id}`)
@@ -36,12 +37,28 @@ export async function GET(request: Request) {
     // Get opponent names
     let opponentNames: Record<string, string> = {};
     if (opponentIds.size > 0) {
-      const { data: opponents } = await supabase
+      // users テーブルはRLSで他人行の参照が制限されるため、認証済みユーザー確認後に
+      // サービスロールで表示名を解決する。
+      const adminClient = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
+
+      const { data: opponents, error: opponentsError } = await adminClient
         .from('users')
         .select('id, display_name')
         .in('id', [...opponentIds]);
+
+      if (opponentsError) {
+        console.error('Failed to fetch opponent names:', opponentsError);
+        return NextResponse.json({ error: '対戦相手名の取得に失敗しました' }, { status: 500 });
+      }
+
       if (opponents) {
-        opponentNames = Object.fromEntries(opponents.map(o => [o.id, o.display_name]));
+        opponentNames = Object.fromEntries(
+          opponents.map((o) => [o.id, o.display_name || '不明'])
+        );
       }
     }
 

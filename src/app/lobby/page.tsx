@@ -42,7 +42,7 @@ export default function LobbyPage() {
     displayName,
   });
 
-  const { isMuted, toggleMute } = useVoiceChat({
+  const { isMuted, micAvailable, toggleMute } = useVoiceChat({
     roomId: 'lobby',
     userId: user?.id || '',
   });
@@ -289,6 +289,9 @@ export default function LobbyPage() {
               )}
               マイク
             </button>
+            {!micAvailable && (
+              <span className="text-[10px] text-text-muted ml-1">クリックでマイク許可</span>
+            )}
           </div>
         </div>
       </footer>

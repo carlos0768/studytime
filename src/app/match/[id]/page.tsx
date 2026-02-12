@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { useMatch } from '@/hooks/use-match';
+import { useVoiceChat } from '@/hooks/use-voice-chat';
 import { SaunaClock } from '@/components/sauna-clock';
 
 export default function MatchPage() {
@@ -11,20 +12,21 @@ export default function MatchPage() {
   const matchId = params.id as string;
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const [ready, setReady] = useState(false);
   const [confirmGiveup, setConfirmGiveup] = useState(false);
 
   const { status, result, elapsedSeconds, giveUp } = useMatch({
     matchId,
     userId: user?.id || '',
   });
+  const { isMuted, micAvailable, toggleMute } = useVoiceChat({
+    roomId: `match-${matchId}`,
+    userId: user?.id || '',
+  });
 
   useEffect(() => {
     if (!authLoading && !user) {
       router.push('/login');
-      return;
     }
-    if (user) setReady(true);
   }, [user, authLoading, router]);
 
   // Navigate to result when match ends
@@ -70,7 +72,7 @@ export default function MatchPage() {
     };
   }, []);
 
-  if (!ready || authLoading) {
+  if (authLoading || !user) {
     return (
       <div className="min-h-dvh flex items-center justify-center bg-black">
         <div className="w-8 h-8 border-2 border-amber/30 border-t-amber rounded-full animate-spin" />
@@ -78,16 +80,38 @@ export default function MatchPage() {
     );
   }
 
-  const handleGiveUp = async () => {
-    if (!confirmGiveup) {
-      setConfirmGiveup(true);
-      return;
-    }
-    await giveUp();
-  };
-
   return (
-    <div className="h-dvh flex flex-col items-center justify-center bg-black select-none">
+    <div className="h-dvh flex flex-col items-center justify-center bg-black select-none relative">
+      <div
+        className="absolute right-4 top-4 sm:right-5 sm:top-5 z-20 flex flex-col items-end gap-1"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
+        <button
+          onClick={toggleMute}
+          className="inline-flex items-center gap-2 text-xs transition-colors px-3 py-2 rounded-lg hover:bg-slate-mid/30"
+          style={{ color: isMuted ? 'var(--color-text-muted)' : 'var(--color-sage)' }}
+        >
+          {isMuted ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="1" y1="1" x2="23" y2="23" />
+              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2c0 .76-.12 1.5-.35 2.18" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            </svg>
+          )}
+          {isMuted ? 'マイクOFF' : 'マイクON'}
+        </button>
+        {!micAvailable && (
+          <p className="text-[10px] text-text-muted">
+            クリックでマイク許可
+          </p>
+        )}
+      </div>
+
       <p
         className="text-text-muted text-lg tracking-widest mb-8 opacity-40"
         style={{ fontFamily: 'var(--font-display)' }}

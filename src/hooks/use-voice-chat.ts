@@ -56,6 +56,20 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
     });
   }, []);
 
+  const removePeer = useCallback((peerId: string) => {
+    const pc = peersRef.current.get(peerId);
+    if (pc) {
+      pc.close();
+      peersRef.current.delete(peerId);
+    }
+    const audio = audioElementsRef.current.get(peerId);
+    if (audio) {
+      audio.srcObject = null;
+      audio.remove();
+      audioElementsRef.current.delete(peerId);
+    }
+  }, []);
+
   const playRemoteStream = useCallback((peerId: string, stream: MediaStream) => {
     let audio = audioElementsRef.current.get(peerId);
     if (!audio) {
@@ -84,8 +98,7 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
     (peerId: string, isInitiator: boolean) => {
       const existing = peersRef.current.get(peerId);
       if (existing) {
-        existing.close();
-        peersRef.current.delete(peerId);
+        return existing;
       }
 
       const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -120,14 +133,7 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
 
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'failed') {
-          pc.close();
-          peersRef.current.delete(peerId);
-          const audio = audioElementsRef.current.get(peerId);
-          if (audio) {
-            audio.srcObject = null;
-            audio.remove();
-            audioElementsRef.current.delete(peerId);
-          }
+          removePeer(peerId);
         }
       };
 
@@ -149,7 +155,7 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
 
       return pc;
     },
-    [sendSignal, playRemoteStream]
+    [removePeer, sendSignal, playRemoteStream]
   );
 
   // --- シグナリングハンドラ（ref経由で最新版を参照） ---
@@ -162,22 +168,15 @@ export function useVoiceChat({ roomId, userId }: UseVoiceChatProps) {
     switch (payload.type) {
       case 'voice-join': {
         if (!isConnectedRef.current) return;
-        createPeer(payload.from, true);
+        if (peersRef.current.has(payload.from)) return;
+        // Prevent glare: only one side starts the initial offer.
+        const shouldInitiate = userIdRef.current.localeCompare(payload.from) > 0;
+        createPeer(payload.from, shouldInitiate);
         break;
       }
 
       case 'voice-leave': {
-        const pc = peersRef.current.get(payload.from);
-        if (pc) {
-          pc.close();
-          peersRef.current.delete(payload.from);
-        }
-        const audio = audioElementsRef.current.get(payload.from);
-        if (audio) {
-          audio.srcObject = null;
-          audio.remove();
-          audioElementsRef.current.delete(payload.from);
-        }
+        removePeer(payload.from);
         break;
       }
 
